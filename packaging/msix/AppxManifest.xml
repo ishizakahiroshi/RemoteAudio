@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  MSIX package manifest for the Microsoft Store edition of audioremote.
+  MSIX package manifest for the Microsoft Store edition of Remote Audio.
 
   Identity の 3 値は Partner Center の「製品管理 → 製品 ID」の表示と
   大文字小文字・空白まで完全一致していなければならない。1 文字でも違うと
@@ -27,20 +27,20 @@
   IgnorableNamespaces="uap desktop desktop2 rescap">
 
   <Identity
-    Name="ishizakahiroshi.audioremote"
+    Name="ishizakahiroshi.RemoteAudio"
     Publisher="CN=A454C7F3-0506-42C1-AB41-2BE056B76ABF"
     Version="{{VERSION}}"
     ProcessorArchitecture="x64" />
 
   <Properties>
-    <DisplayName>audioremote</DisplayName>
+    <DisplayName>Remote Audio</DisplayName>
     <PublisherDisplayName>ishizakahiroshi</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
   <Dependencies>
     <!--
-      audioremote はもともと Windows 11 専用（Core Audio の非公開 COM を叩く）。
+      Remote Audio はもともと Windows 11 専用（Core Audio の非公開 COM を叩く）。
       10.0.22000.0 = Windows 11 21H2 RTM。README の対応 OS 表記と揃えること。
     -->
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
@@ -56,9 +56,9 @@
   </Resources>
 
   <Applications>
-    <Application Id="App" Executable="audioremote.exe" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="App" Executable="RemoteAudio.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="audioremote"
+        DisplayName="Remote Audio"
         Description="Switch your Windows 11 host's default audio output device from any browser on the LAN"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
@@ -76,7 +76,7 @@
           パッケージコンテナへ仮想化されうるので、autostart.rs の HKCU 経路は
           MSIX では使わない（src/autostart.rs の `packaged()` 分岐）。
 
-          Executable を引数なしで起動するのが startupTask の仕様。audioremote の
+          Executable を引数なしで起動するのが startupTask の仕様。Remote Audio の
           既定サブコマンドは `supervise` なので、これでトレイ常駐が立ち上がる。
 
           Enabled="true" は「初期値は有効」の意味で、以後はタスクマネージャーの
@@ -93,12 +93,12 @@
         -->
         <desktop:Extension
           Category="windows.startupTask"
-          Executable="audioremote.exe"
+          Executable="RemoteAudio.exe"
           EntryPoint="Windows.FullTrustApplication">
           <desktop:StartupTask
             TaskId="AudioRemoteSupervisor"
             Enabled="true"
-            DisplayName="AudioRemote" />
+            DisplayName="Remote Audio" />
         </desktop:Extension>
       </Extensions>
     </Application>
@@ -121,7 +121,7 @@
       ポータブル版の FIREWALL_PROFILES = "private,domain" と同じ方針を維持する。
 
       **ポートは config.toml の既定 17650 で固定**。manifest は config を読めないので、
-      `audioremote setup` でポートを変えた MSIX 利用者はこの規則の範囲外になる。
+      `RemoteAudio setup` でポートを変えた MSIX 利用者はこの規則の範囲外になる。
       その場合は手でインバウンド規則を足す必要がある（packaging/msix/README.md に記載）。
     -->
     <!--
@@ -130,7 +130,7 @@
       内側の FirewallRules の Executable（スキーマ上 use="required"）。
     -->
     <desktop2:Extension Category="windows.firewallRules">
-      <desktop2:FirewallRules Executable="audioremote.exe">
+      <desktop2:FirewallRules Executable="RemoteAudio.exe">
         <desktop2:Rule
           Direction="in"
           IPProtocol="TCP"

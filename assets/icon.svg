@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <title>audioremote</title>
+  <title>Remote Audio</title>
 
   <!-- Cream background frame (matches Web UI bg #f7f3ea) -->
   <rect width="512" height="512" rx="104" fill="#f7f3ea"/>

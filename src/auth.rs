@@ -1,6 +1,6 @@
 //! Live bearer-token state.
 //!
-//! `audioremote token add|revoke` runs as a **separate process** and only edits
+//! `RemoteAudio token add|revoke` runs as a **separate process** and only edits
 //! `config.toml`. The server used to freeze the token set into an `Arc<Config>`
 //! at startup, so a revoke reported success while the leaked token kept working
 //! until the next restart — and a freshly added token was rejected with 401.
@@ -210,7 +210,7 @@ mod tests {
         assert!(auth.matches(&original));
         assert_eq!(auth.share_token().as_deref(), Some(original.as_str()));
 
-        // Stand in for `audioremote token add phone && audioremote token revoke default`
+        // Stand in for `RemoteAudio token add phone && RemoteAudio token revoke default`
         // running in another console.
         let added = add_named_token(&mut cfg, "phone");
         revoke_token(&mut cfg, &original);

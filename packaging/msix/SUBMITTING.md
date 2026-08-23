@@ -1,4 +1,4 @@
-# Getting AudioRemote into the Microsoft Store
+# Getting Remote Audio into the Microsoft Store
 
 Only the **first** submission is done by hand. The Store submission API — and
 therefore `.github/workflows/msstore-publish.yml` — requires that the app is
@@ -37,6 +37,17 @@ of these are secrets: they ship inside every public package. A mismatch is caugh
 loudly at upload, so a wrong guess cannot reach the Store — but it does cost a
 round trip, and `build-msix.ps1` prints all three for exactly that comparison.
 
+The current `Remote Audio` reservation is:
+
+- `Identity/Name`: `ishizakahiroshi.RemoteAudio`
+- `Identity/Publisher`: `CN=A454C7F3-0506-42C1-AB41-2BE056B76ABF`
+- `PublisherDisplayName`: `ishizakahiroshi`
+- Store ID: `9PC6L3B67FV9`
+- PFN: `ishizakahiroshi.RemoteAudio_n1ntyf38k1qmm`
+
+The first submission is still pending. Once published, the public Store link will
+be <https://apps.microsoft.com/detail/9PC6L3B67FV9>.
+
 Reserve the name at <https://partner.microsoft.com> → Apps and games → New
 product → **MSIX/PWA** (not EXE/MSI). A reserved name is released again if it
 goes unused for three months.
@@ -65,7 +76,7 @@ Then check, on a machine with real audio devices:
 
 - launching from the Start menu shows **no console window** and puts an icon in
   the notification area
-- Task Manager → Startup apps lists **AudioRemote**, and it can be switched off
+- Task Manager → Startup apps lists **Remote Audio**, and it can be switched off
 - another machine on the LAN can open the share URL and switch the output device
 - `%APPDATA%\audioremote\config.toml` is written where the portable build writes
   it, not into a package-private copy
@@ -134,8 +145,8 @@ before each submission.
 
 - **The firewall rule is pinned to port 17650.** A manifest cannot read
   `config.toml`, so `windows.firewallRules` names one port. Anyone who moves the
-  server with `audioremote setup` needs an inbound rule of their own;
-  `audioremote --install-autostart` detects this and prints the command.
+  server with `RemoteAudio setup` needs an inbound rule of their own;
+  `RemoteAudio.exe --install-autostart` detects this and prints the command.
 - **`Executable` must not appear on the firewall `Extension` element.** It makes
   `EntryPoint` mandatory and `MakeAppx` fails with `80080204`. The executable is
   named on the inner `FirewallRules` element.

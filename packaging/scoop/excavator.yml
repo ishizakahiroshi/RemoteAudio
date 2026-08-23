@@ -1,6 +1,6 @@
-# Belongs in the BUCKET repository, at .github/workflows/excavator.yml — not in
-# this one. It is kept here so the bucket can be recreated from this repository
-# if it is ever lost.
+# Learning/reference artifact only. If Scoop is ever revived, copy this file to
+# the BUCKET repository at .github/workflows/excavator.yml — it is not an active
+# AudioRemote release workflow in v0.2.
 #
 # What it does: walks every manifest in the bucket, asks each one's `checkver`
 # whether a newer version exists, and if so runs its `autoupdate` block to

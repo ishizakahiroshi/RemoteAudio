@@ -228,7 +228,7 @@ impl Callout {
             // is typing in.
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             class_name,
-            w!("AudioRemote"),
+            w!("Remote Audio"),
             WS_POPUP,
             self.placement.left,
             self.placement.top,

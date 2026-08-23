@@ -161,9 +161,9 @@ fn embed_windows_resource() {
     res.set_manifest_file(manifest_path);
     res.set(
         "FileDescription",
-        "audioremote — Windows 11 audio output remote",
+        "Remote Audio — Windows 11 audio output remote",
     );
-    res.set("ProductName", "audioremote");
+    res.set("ProductName", "Remote Audio");
     res.set(
         "LegalCopyright",
         "Copyright (c) 2026 Hiroshi Ishizaka (ishizakahiroshi)",

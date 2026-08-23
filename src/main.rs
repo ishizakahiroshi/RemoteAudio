@@ -33,7 +33,7 @@ mod tray;
 #[cfg(windows)]
 mod welcome;
 
-/// What a bare `audioremote.exe` does.
+/// What a bare `RemoteAudio.exe` does.
 ///
 /// `supervise` and not `serve` since v0.2: with no console window, a
 /// double-clicked exe that only starts a server puts *nothing* on screen. The
@@ -71,7 +71,7 @@ fn main() {
         "token" => run_token(&args),
         "setup" | "--setup" => run_setup(),
         // A leading flag with no subcommand still means "serve", the way it did
-        // in v0.1 (`audioremote --no-open`). A *bare* `audioremote` no longer
+        // in v0.1 (`RemoteAudio.exe --no-open`). A *bare* `RemoteAudio.exe` no longer
         // lands here — see `DEFAULT_COMMAND`.
         _ if cmd == "serve" || cmd.starts_with("--") || cmd.is_empty() => {
             let no_open = args.iter().skip(1).any(|a| a == "--no-open");
@@ -90,7 +90,7 @@ fn main() {
 ///
 /// The exceptions matter more than the rule. `serve` and `supervise` outlive the
 /// shell that started them, and a resident process writing into a prompt
-/// somebody is still typing at is worse than staying quiet — `audioremote share`
+/// somebody is still typing at is worse than staying quiet — `RemoteAudio share`
 /// is how you get the URLs back afterwards. The firewall helpers run elevated on
 /// another desktop with no console to borrow, and answer through their exit
 /// code. Everything else, including a typo, gets a console: an error message
@@ -125,7 +125,7 @@ fn attach_parent_console() {
 
     /// Point one standard handle at the console — but only if it is still empty.
     ///
-    /// `audioremote list > out.txt` arrives with a real file handle already in
+    /// `RemoteAudio list > out.txt` arrives with a real file handle already in
     /// place. Overwriting that would put the output on screen and leave the file
     /// empty, which is a worse regression than the one this whole function is
     /// fixing.
@@ -163,27 +163,29 @@ fn attach_parent_console() {
 
 fn banner() {
     println!(
-        "audioremote v{} (Windows 11 host agent)",
+        "Remote Audio v{} (Windows 11 host agent)",
         env!("CARGO_PKG_VERSION")
     );
     println!();
     println!("Subcommands:");
     println!(
-        "  audioremote               run in the notification area, keeping the server alive (default)"
+        "  RemoteAudio               run in the notification area, keeping the server alive (default)"
     );
-    println!("  audioremote supervise     same as above (explicit)");
-    println!("  audioremote serve         run one server in the foreground, no tray icon");
-    println!("  audioremote serve --no-open   skip auto-opening the browser");
-    println!("  audioremote setup         interactive config wizard (bind / token / sort)");
-    println!("  audioremote list          list playback endpoints + current defaults");
-    println!("  audioremote set <id>      switch default (Console/Multimedia/Communications)");
-    println!("  audioremote share         print the LAN URLs with the token in full");
+    println!("  RemoteAudio supervise     same as above (explicit)");
+    println!("  RemoteAudio serve         run one server in the foreground, no tray icon");
+    println!("  RemoteAudio serve --no-open   skip auto-opening the browser");
     println!(
-        "  audioremote token ...     manage LAN tokens (list [--show] / add <name> / revoke <name|token>)"
+        "  RemoteAudio setup         interactive config wizard (bind / token / sort / recovery)"
     );
-    println!("  audioremote --install-autostart     start server at logon (HKCU Run)");
-    println!("  audioremote --uninstall-autostart  remove the AudioRemote logon entry");
-    println!("  audioremote --help        show this help");
+    println!("  RemoteAudio list          list playback endpoints + current defaults");
+    println!("  RemoteAudio set <id>      switch default (Console/Multimedia/Communications)");
+    println!("  RemoteAudio share         print the LAN URLs with the token in full");
+    println!(
+        "  RemoteAudio token ...     manage LAN tokens (list [--show] / add <name> / revoke <name|token>)"
+    );
+    println!("  RemoteAudio.exe --install-autostart     start server at logon (HKCU Run)");
+    println!("  RemoteAudio.exe --uninstall-autostart  remove the Remote Audio logon entry");
+    println!("  RemoteAudio.exe --help        show this help");
     println!();
     println!("Repository: {}", env!("CARGO_PKG_REPOSITORY"));
 }
@@ -220,10 +222,10 @@ fn run_install_autostart() {
     // the manifest's firewall rule does not cover.
     let command = match installed {
         autostart::Installed::PackagedStartupTask => {
-            println!("AudioRemote is installed from the Microsoft Store.");
+            println!("Remote Audio is installed from the Microsoft Store.");
             println!("  autostart: already on — the package declares it, and Windows starts");
-            println!("             AudioRemote at sign-in. Turn it off in Task Manager →");
-            println!("             Startup apps → AudioRemote.");
+            println!("             Remote Audio at sign-in. Turn it off in Task Manager →");
+            println!("             Startup apps → Remote Audio.");
             if port == autostart::PACKAGED_FIREWALL_PORT {
                 println!("  firewall:  already open — the package declares inbound TCP {port} on");
                 println!("             private and domain networks.");
@@ -233,7 +235,7 @@ fn run_install_autostart() {
                 // server nothing can reach, and no way to guess why.
                 println!("  firewall:  NOT open for this port. The package only declares TCP");
                 println!(
-                    "             {}, and `audioremote setup` moved the server to {port}.",
+                    "             {}, and `RemoteAudio setup` moved the server to {port}.",
                     autostart::PACKAGED_FIREWALL_PORT
                 );
                 println!("             Add the rule once from an elevated prompt:");
@@ -247,7 +249,7 @@ fn run_install_autostart() {
         autostart::Installed::RunValue(command) => command,
     };
 
-    println!("AudioRemote autostart installed.");
+    println!("Remote Audio autostart installed.");
     println!(r"  registry: HKCU\{}", autostart::RUN_KEY_PATH);
     println!("  value:    {}", autostart::VALUE_NAME);
     println!("  command:  {command}");
@@ -281,9 +283,9 @@ fn run_install_autostart() {
 #[cfg(windows)]
 fn run_uninstall_autostart() {
     if autostart::packaged() {
-        println!("AudioRemote is installed from the Microsoft Store.");
+        println!("Remote Audio is installed from the Microsoft Store.");
         println!("  autostart: this command cannot switch it off — Windows owns it.");
-        println!("             Task Manager → Startup apps → AudioRemote → Disable.");
+        println!("             Task Manager → Startup apps → Remote Audio → Disable.");
         println!("  firewall:  remove the inbound rule from an elevated prompt:");
         println!(
             "               netsh advfirewall firewall delete rule name=\"{}\"",
@@ -293,7 +295,7 @@ fn run_uninstall_autostart() {
     }
 
     match autostart::uninstall() {
-        Ok(()) => println!("AudioRemote autostart removed (if it was registered)."),
+        Ok(()) => println!("Remote Audio autostart removed (if it was registered)."),
         Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {
             eprintln!("[unsupported] {e}");
             std::process::exit(2);
@@ -319,7 +321,7 @@ fn run_uninstall_autostart() {
 
 /// The port the resident server will actually listen on. Reading the config
 /// here (rather than assuming the default) is what keeps the firewall rule and
-/// the listener in agreement after someone runs `audioremote setup`.
+/// the listener in agreement after someone runs `RemoteAudio setup`.
 #[cfg(windows)]
 fn configured_port() -> u16 {
     match config::load_or_init(&config::default_config_path()) {
@@ -334,7 +336,7 @@ fn configured_port() -> u16 {
 #[cfg(windows)]
 fn run_firewall_helper(port: Option<&str>) {
     let Some(port) = port.and_then(|p| p.parse::<u16>().ok()) else {
-        eprintln!("usage: audioremote --firewall-install <port>");
+        eprintln!("usage: RemoteAudio.exe --firewall-install <port>");
         std::process::exit(2);
     };
     let exe = match std::env::current_exe() {
@@ -468,18 +470,24 @@ fn run_supervise() {
     // can bind the port, so a second supervisor's child dies on every attempt
     // until the restart budget runs out — leaving a dead notification-area icon
     // beside the working one and no clue why.
+    let config_path = config::default_config_path();
+    let cfg = match config::load_or_init(&config_path) {
+        Ok((cfg, _)) => cfg,
+        Err(e) => {
+            eprintln!("[fatal] cannot load config: {e}");
+            std::process::exit(1);
+        }
+    };
+
     let _instance = match supervisor::acquire_instance_lock() {
         Some(lock) => lock,
         None => {
-            let language = config::load_or_init(&config::default_config_path())
-                .map(|(cfg, _)| cfg.tray.ui_language)
-                .unwrap_or_else(|_| "auto".to_string());
-            welcome::already_running(&lang::Strings::load(&language));
+            welcome::already_running(&lang::Strings::load(&cfg.tray.ui_language));
             return;
         }
     };
 
-    let (handle, joiner) = match supervisor::start() {
+    let (handle, joiner) = match supervisor::start(cfg.tray.auto_restart) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("[fatal] cannot start the supervisor: {e}");
@@ -487,7 +495,7 @@ fn run_supervise() {
         }
     };
     supervisor::install_console_ctrl_handler();
-    println!("audioremote supervisor running. Ctrl+C stops it and the server together.");
+    println!("RemoteAudio supervisor running. Ctrl+C stops it and the server together.");
 
     // The tray owns the main thread from here: Windows delivers its messages
     // only to the thread that created the window. Losing the icon is not worth
@@ -524,7 +532,7 @@ fn print_startup_banner(
         }
     } else {
         let active = cfg.auth.active_count();
-        println!("  token       {active} active   (audioremote token list to view/manage)");
+        println!("  token       {active} active   (RemoteAudio token list to view/manage)");
     }
     println!(
         "  device_sort {}",
@@ -556,7 +564,7 @@ fn print_startup_banner(
         }
         if generated {
             println!();
-            println!("  [firewall] Windows may prompt to allow audioremote on the LAN — pick");
+            println!("  [firewall] Windows may prompt to allow Remote Audio on the LAN — pick");
             println!("             \"Private networks\" the first time.");
         }
     } else {
@@ -565,7 +573,7 @@ fn print_startup_banner(
             "  [note] LAN is DISABLED (bind = {}). This host will not answer other",
             cfg.server.bind
         );
-        println!("         machines. Run `audioremote setup` to re-enable LAN.");
+        println!("         machines. Run `RemoteAudio setup` to re-enable LAN.");
     }
 
     println!();
@@ -584,7 +592,7 @@ fn print_startup_banner(
             // The token is masked on every start except the very first one. This
             // console is long-lived: it survives in scrollback, screen shares,
             // recordings and redirected logs, and it is re-printed at every logon
-            // by the autostart entry. `audioremote share` prints it in full when
+            // by the autostart entry. `RemoteAudio share` prints it in full when
             // it is actually needed.
             let url = if generated {
                 e.url.clone()
@@ -595,7 +603,7 @@ fn print_startup_banner(
         }
         if !generated {
             println!();
-            println!("    (token masked - run `audioremote share` for the full URLs)");
+            println!("    (token masked - run `RemoteAudio share` for the full URLs)");
         }
     }
 
@@ -648,7 +656,7 @@ fn run_share() {
 
     if !cfg.lan_exposed() {
         println!(
-            "LAN is disabled (bind = {}). Run `audioremote setup` to enable it.",
+            "LAN is disabled (bind = {}). Run `RemoteAudio setup` to enable it.",
             cfg.server.bind
         );
         return;
@@ -696,7 +704,7 @@ fn run_setup() {
         }
     };
 
-    println!("audioremote setup — current config: {}", path.display());
+    println!("RemoteAudio setup — current config: {}", path.display());
     println!();
 
     // 1. LAN mode
@@ -781,11 +789,30 @@ fn run_setup() {
     }
     println!();
 
+    // 5. Crash recovery
+    println!(
+        "5) Automatic server recovery (currently: {})",
+        if cfg.tray.auto_restart { "on" } else { "off" }
+    );
+    print!(
+        "   Turn automatic recovery {}? [y/N]: ",
+        if cfg.tray.auto_restart { "off" } else { "on" }
+    );
+    std::io::stdout().flush().ok();
+    if yes() {
+        cfg.tray.auto_restart = !cfg.tray.auto_restart;
+        println!(
+            "   -> automatic recovery = {}",
+            if cfg.tray.auto_restart { "on" } else { "off" }
+        );
+    }
+    println!();
+
     if let Err(e) = config::save(&path, &cfg) {
         eprintln!("failed to save config: {e}");
         std::process::exit(1);
     }
-    println!("Saved. Restart audioremote for changes to take effect.");
+    println!("Saved. Restart RemoteAudio for changes to take effect.");
 }
 
 #[cfg(windows)]
@@ -859,7 +886,7 @@ fn truncate(s: &str, n: usize) -> String {
 #[cfg(windows)]
 fn run_set(id: Option<&str>) {
     let Some(id) = id else {
-        eprintln!("usage: audioremote set <device_id>");
+        eprintln!("usage: RemoteAudio set <device_id>");
         std::process::exit(2);
     };
     match audio::set_default(id) {
@@ -912,12 +939,12 @@ fn run_token(args: &[String]) {
             }
             if !reveal {
                 println!();
-                println!("tokens are masked - `audioremote token list --show` prints them in full");
+                println!("tokens are masked - `RemoteAudio token list --show` prints them in full");
             }
         }
         "add" => {
             let Some(name) = args.get(3) else {
-                eprintln!("usage: audioremote token add <name>");
+                eprintln!("usage: RemoteAudio token add <name>");
                 std::process::exit(2);
             };
             let token = config::add_named_token(&mut cfg, name);
@@ -932,7 +959,7 @@ fn run_token(args: &[String]) {
         }
         "revoke" => {
             let Some(target) = args.get(3) else {
-                eprintln!("usage: audioremote token revoke <name|token>");
+                eprintln!("usage: RemoteAudio token revoke <name|token>");
                 std::process::exit(2);
             };
             let n = config::revoke_token(&mut cfg, target);
@@ -969,7 +996,7 @@ fn run_token(args: &[String]) {
         other => {
             eprintln!("unknown token subcommand: {other}");
             eprintln!(
-                "usage: audioremote token [list [--show] | add <name> | revoke <name|token>]"
+                "usage: RemoteAudio token [list [--show] | add <name> | revoke <name|token>]"
             );
             std::process::exit(2);
         }
@@ -981,57 +1008,57 @@ fn run_token(args: &[String]) {
 // discovered by whoever tries to `cargo check` on macOS or Linux.
 #[cfg(not(windows))]
 fn run_serve(_no_open: bool) {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(1);
 }
 #[cfg(not(windows))]
 fn run_supervise() {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(1);
 }
 #[cfg(not(windows))]
 fn run_install_autostart() {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(2);
 }
 #[cfg(not(windows))]
 fn run_uninstall_autostart() {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(2);
 }
 #[cfg(not(windows))]
 fn run_firewall_helper(_port: Option<&str>) {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(2);
 }
 #[cfg(not(windows))]
 fn run_firewall_helper_uninstall() {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(2);
 }
 #[cfg(not(windows))]
 fn run_list() {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(1);
 }
 #[cfg(not(windows))]
 fn run_share() {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(1);
 }
 #[cfg(not(windows))]
 fn run_set(_: Option<&str>) {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(1);
 }
 #[cfg(not(windows))]
 fn run_setup() {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(1);
 }
 #[cfg(not(windows))]
 fn run_token(_: &[String]) {
-    eprintln!("audioremote only runs on Windows.");
+    eprintln!("RemoteAudio only runs on Windows.");
     std::process::exit(1);
 }
 

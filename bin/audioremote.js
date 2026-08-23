@@ -18,7 +18,7 @@ const require = createRequire(import.meta.url);
 
 /** Platform key -> [npm package, executable name inside its `bin/` folder]. */
 export const PLATFORM_PACKAGES = {
-  "win32-x64": ["@ishizakahiroshi/audioremote-win32-x64", "audioremote.exe"],
+  "win32-x64": ["@ishizakahiroshi/audioremote-win32-x64", "RemoteAudio.exe"],
 };
 
 export function platformKey(platform = process.platform, arch = process.arch) {

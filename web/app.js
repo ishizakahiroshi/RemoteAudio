@@ -1,4 +1,4 @@
-// audioremote v0.1 built-in Web UI.
+// Remote Audio v0.1 built-in Web UI.
 // Vanilla JS, no framework. Poll every POLL_MS.
 // i18n: language packs live under /lang/<code>.json. Adding a new language
 // means dropping a new JSON with a `_lang: { code, name }` block; the server
@@ -782,7 +782,7 @@ function renderAboutSheet() {
 
   sheet.append(
     h("div", { class: "about-block" },
-      h("div", { class: "about-name" }, a.name || "audioremote"),
+      h("div", { class: "about-name" }, a.name || "Remote Audio"),
       h("div", { class: "meta" }, t("about.versionRow", { version: a.version || "?" })),
       // Prefer the localized copy: `description` comes from Cargo.toml, which
       // stays English because crates.io shows it.
@@ -794,7 +794,7 @@ function renderAboutSheet() {
     h("div", { class: "about-block" },
       h("div", { class: "about-h" }, t("about.licenseSection")),
       h("div", {}, t("about.licenseBody", {
-        name: a.name || "audioremote",
+        name: a.name || "Remote Audio",
         license: a.license || "MIT",
         copyright: a.copyright || "",
       })),

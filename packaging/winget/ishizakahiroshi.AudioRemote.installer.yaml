@@ -11,8 +11,9 @@ MinimumOSVersion: 10.0.22000.0
 
 # The release ships a zip holding one exe, which is what `portable` inside `zip`
 # is for: winget unpacks it into its own package store and puts an `audioremote`
-# alias on PATH. No installer, nothing in Program Files, nothing to uninstall by
-# hand.
+# alias on PATH. This v0.1.0 manifest intentionally keeps the legacy filename;
+# the v0.2 manifest will switch the archive member and alias to RemoteAudio.exe.
+# No installer, nothing in Program Files, nothing to uninstall by hand.
 InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
@@ -21,7 +22,7 @@ NestedInstallerFiles:
 
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/ishizakahiroshi/audioremote/releases/download/v0.1.0/audioremote-win32-x64.zip
+    InstallerUrl: https://github.com/ishizakahiroshi/RemoteAudio/releases/download/v0.1.0/audioremote-win32-x64.zip
     # Copied from the release's own SHA256SUMS.txt, never recomputed here. Two
     # places claiming to know the hash is two places that can disagree.
     InstallerSha256: 45BC534702ECF220ADFEE9BA6818C09AC44F947545276D1B253A2A4B3E2176BD

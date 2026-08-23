@@ -1,13 +1,13 @@
 {
   "name": "@ishizakahiroshi/audioremote-win32-x64",
   "version": "0.1.0",
-  "description": "audioremote native binary for Windows x64",
+  "description": "Remote Audio native binary for Windows x64",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/ishizakahiroshi/audioremote.git" },
-  "homepage": "https://github.com/ishizakahiroshi/audioremote#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/ishizakahiroshi/RemoteAudio.git" },
+  "homepage": "https://github.com/ishizakahiroshi/RemoteAudio#readme",
   "author": "Hiroshi Ishizaka (ishizakahiroshi)",
   "os": ["win32"],
   "cpu": ["x64"],
-  "bin": { "audioremote": "bin/audioremote.exe" },
-  "files": ["bin/audioremote.exe", "README.md", "LICENSE"]
+  "bin": { "RemoteAudio": "bin/RemoteAudio.exe" },
+  "files": ["bin/RemoteAudio.exe", "README.md", "LICENSE"]
 }

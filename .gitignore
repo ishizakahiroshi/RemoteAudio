@@ -74,3 +74,9 @@ secrets.*
 .netrc
 .npmrc
 .pypirc
+# === 監査証跡（ai-audit-prompts・ローカル限定・2026-08-23 承認で ignore 選択） ===
+/docs/ai-audit-prompts/
+
+# === obsidian-link: managed ===
+/docs/obsidian/
+# === /obsidian-link: managed ===

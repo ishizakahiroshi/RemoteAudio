@@ -1,4 +1,4 @@
-//! Keeps exactly one `audioremote serve` child alive for the length of the
+//! Keeps exactly one `RemoteAudio serve` child alive for the length of the
 //! logon session.
 //!
 //! v0.1 pointed HKCU Run straight at `serve --no-open`: a crash left the host
@@ -56,7 +56,7 @@ pub fn staging_exe_path() -> Option<PathBuf> {
         PathBuf::from(local)
             .join("audioremote")
             .join("staging")
-            .join("audioremote.exe"),
+            .join("RemoteAudio.exe"),
     )
 }
 
@@ -113,6 +113,8 @@ pub enum SupervisorState {
     Stopped,
     /// Gave up after exhausting the restart budget.
     Failed,
+    /// The child stopped, and the user chose not to retry it automatically.
+    AutoRestartOff,
 }
 
 impl SupervisorState {
@@ -124,6 +126,7 @@ impl SupervisorState {
             Self::Restarting => "tray.state.restarting",
             Self::Stopped => "tray.state.stopped",
             Self::Failed => "tray.state.failed",
+            Self::AutoRestartOff => "tray.state.autoRestartOff",
         }
     }
 }
@@ -176,7 +179,7 @@ pub fn backoff_delay(attempt: u32) -> Duration {
 /// The caller must keep the [`Handle`] alive for as long as it wants the child
 /// supervised: dropping every handle disconnects the channel, which the monitor
 /// reads as "nobody can ask for anything again" and shuts down.
-pub fn start() -> io::Result<(Handle, JoinHandle<()>)> {
+pub fn start(auto_restart: bool) -> io::Result<(Handle, JoinHandle<()>)> {
     let exe = std::env::current_exe()?;
     let (tx, rx) = mpsc::channel();
     let state = Arc::new(Mutex::new(SupervisorState::Restarting));
@@ -186,7 +189,7 @@ pub fn start() -> io::Result<(Handle, JoinHandle<()>)> {
     };
     let joiner = std::thread::Builder::new()
         .name("audioremote-supervisor".to_string())
-        .spawn(move || Monitor::new(exe, state).run(rx))?;
+        .spawn(move || Monitor::new(exe, state, auto_restart).run(rx))?;
     Ok((handle, joiner))
 }
 
@@ -217,6 +220,9 @@ pub fn install_console_ctrl_handler() {
 struct Monitor {
     exe: PathBuf,
     shared: Arc<Mutex<SupervisorState>>,
+    /// Whether an unexpected child exit should be retried. This is a resident
+    /// mode preference; direct `serve` never creates a Monitor at all.
+    auto_restart: bool,
     /// Requests forwarded by a child over its stdout pipe.
     ///
     /// A channel of its own, not the caller's: the monitor has to hold a sender
@@ -239,11 +245,12 @@ struct Monitor {
 }
 
 impl Monitor {
-    fn new(exe: PathBuf, shared: Arc<Mutex<SupervisorState>>) -> Self {
+    fn new(exe: PathBuf, shared: Arc<Mutex<SupervisorState>>, auto_restart: bool) -> Self {
         let (child_tx, child_rx) = mpsc::channel();
         Self {
             exe,
             shared,
+            auto_restart,
             child_tx,
             child_rx,
             job: Job::new(),
@@ -346,13 +353,13 @@ impl Monitor {
                     if self.roll_back(&format!("the new build exited ({status})")) {
                         return;
                     }
-                    self.schedule_restart(&format!("server exited ({status})"));
+                    self.handle_child_failure(&format!("server exited ({status})"));
                 }
                 Err(e) => {
                     // The handle is unusable; treat it as a death rather than
                     // polling a corpse forever.
                     self.child = None;
-                    self.schedule_restart(&format!("cannot poll the server ({e})"));
+                    self.handle_child_failure(&format!("cannot poll the server ({e})"));
                 }
             }
         }
@@ -379,14 +386,26 @@ impl Monitor {
                 if self.roll_back(&reason) {
                     return;
                 }
-                self.schedule_restart(&reason);
+                self.handle_child_failure(&reason);
             }
         }
     }
 
+    fn handle_child_failure(&mut self, reason: &str) {
+        if !self.auto_restart {
+            eprintln!(
+                "[supervisor] {reason}; automatic restart is disabled, leaving the server stopped"
+            );
+            self.retry_at = None;
+            self.set_state(SupervisorState::AutoRestartOff);
+            return;
+        }
+        self.schedule_restart(reason);
+    }
+
     fn spawn(&mut self) -> io::Result<Child> {
         // `--no-open` because the supervisor is what runs at logon: a browser
-        // tab every time you sign in is not a feature. Running `audioremote
+        // tab every time you sign in is not a feature. Running `RemoteAudio
         // serve` by hand still opens one.
         let mut child = Command::new(&self.exe)
             .args(["serve", "--no-open"])
@@ -618,7 +637,7 @@ impl Drop for Monitor {
 /// twice without signing out.
 const MAX_BACKUPS: u32 = 8;
 
-/// `audioremote.exe` → `audioremote.exe.old`, `.old.1`, `.old.2`, …
+/// `RemoteAudio.exe` → `RemoteAudio.exe.old`, `.old.1`, `.old.2`, …
 fn backup_path(exe: &Path, index: u32) -> PathBuf {
     let mut name = exe.file_name().unwrap_or_default().to_os_string();
     name.push(if index == 0 {
@@ -833,14 +852,14 @@ mod tests {
 
     #[test]
     fn backups_sit_next_to_the_exe_and_never_collide() {
-        let exe = PathBuf::from(r"C:\tools\audioremote\audioremote.exe");
+        let exe = PathBuf::from(r"C:\tools\RemoteAudio\RemoteAudio.exe");
         assert_eq!(
             backup_path(&exe, 0),
-            PathBuf::from(r"C:\tools\audioremote\audioremote.exe.old")
+            PathBuf::from(r"C:\tools\RemoteAudio\RemoteAudio.exe.old")
         );
         assert_eq!(
             backup_path(&exe, 1),
-            PathBuf::from(r"C:\tools\audioremote\audioremote.exe.old.1")
+            PathBuf::from(r"C:\tools\RemoteAudio\RemoteAudio.exe.old.1")
         );
 
         let names: std::collections::HashSet<PathBuf> =
@@ -863,7 +882,7 @@ mod tests {
     fn a_free_backup_name_skips_the_ones_already_there() {
         let dir = std::env::temp_dir().join(format!("audioremote-sup-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
-        let exe = dir.join("audioremote.exe");
+        let exe = dir.join("RemoteAudio.exe");
 
         assert_eq!(free_backup_path(&exe), Some(backup_path(&exe, 0)));
         std::fs::write(backup_path(&exe, 0), b"x").expect("write backup");
@@ -905,6 +924,7 @@ mod tests {
             SupervisorState::Restarting,
             SupervisorState::Stopped,
             SupervisorState::Failed,
+            SupervisorState::AutoRestartOff,
         ] {
             let key = state.lang_key();
             assert!(key.starts_with("tray.state."), "{state:?} -> {key}");

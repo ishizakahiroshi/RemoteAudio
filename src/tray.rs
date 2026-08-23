@@ -14,18 +14,21 @@
 //! thread and is driven from here through [`supervisor::Handle`].
 
 use std::cell::RefCell;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-    NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION,
+    FOLDERID_Desktop, SHGetKnownFolderPath, Shell_NotifyIconW, KF_FLAG_DEFAULT, NIF_ICON,
+    NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW,
+    NOTIFYICON_VERSION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
@@ -65,6 +68,7 @@ const ID_RESTART: usize = 2;
 const ID_TOGGLE: usize = 3;
 const ID_QUIT: usize = 4;
 const ID_SHARE_BASE: usize = 100;
+const ID_SHORTCUT_BASE: usize = 200;
 
 /// Show the tray icon and pump messages until the user picks Quit.
 ///
@@ -95,7 +99,7 @@ pub fn run(handle: supervisor::Handle) -> std::io::Result<()> {
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             class_name,
-            w!("AudioRemote"),
+            w!("Remote Audio"),
             WS_OVERLAPPED,
             0,
             0,
@@ -141,13 +145,19 @@ pub fn run(handle: supervisor::Handle) -> std::io::Result<()> {
             if !choice.keep_showing {
                 tray.borrow().stop_showing_welcome();
             }
-            if choice.act {
-                if cfg.tray.setup_done {
-                    tray.borrow().open_ui();
-                } else {
+            match choice.action {
+                welcome::WelcomeAction::Setup => {
                     let outcome = tray.borrow_mut().run_first_run_setup();
                     welcome::report(&strings, outcome);
                 }
+                welcome::WelcomeAction::Open => tray.borrow().open_ui(),
+                welcome::WelcomeAction::CopyShare => {
+                    tray.borrow().copy_first_share();
+                }
+                welcome::WelcomeAction::CreateShortcut => {
+                    tray.borrow().create_first_shortcut();
+                }
+                welcome::WelcomeAction::None => {}
             }
             // Last, once every dialog is off the screen: an arrow pointing at
             // where the app actually went. Words alone leave the user hunting
@@ -337,6 +347,7 @@ impl Tray {
                 &self.strings.get("tray.menu.open"),
             );
             self.append_share_item(menu, &cfg);
+            self.append_shortcut_item(menu, &cfg);
             append(menu, MF_SEPARATOR, 0, "");
             append(
                 menu,
@@ -428,6 +439,49 @@ impl Tray {
         }
     }
 
+    /// A desktop shortcut contains the same live token as the copy action, so
+    /// it follows the same NIC selection and availability rules. The actual
+    /// write is still guarded by a confirmation dialog in `create_shortcut`.
+    unsafe fn append_shortcut_item(&self, menu: HMENU, cfg: &Config) {
+        let label = self.strings.get("tray.menu.createShortcut");
+
+        if !cfg.lan_exposed() {
+            append(
+                menu,
+                MF_STRING | MF_GRAYED,
+                0,
+                &self.strings.get("tray.share.noLan"),
+            );
+            return;
+        }
+        if cfg.share_token().is_none() {
+            append(
+                menu,
+                MF_STRING | MF_GRAYED,
+                0,
+                &self.strings.get("tray.share.noToken"),
+            );
+            return;
+        }
+        match self.shares.len() {
+            0 => append(
+                menu,
+                MF_STRING | MF_GRAYED,
+                0,
+                &self.strings.get("tray.share.noNic"),
+            ),
+            1 => append(menu, MF_STRING, ID_SHORTCUT_BASE, &label),
+            _ => {
+                let Ok(sub) = CreatePopupMenu() else { return };
+                for (i, entry) in self.shares.iter().enumerate() {
+                    let text = format!("{} — {}", entry.interface, address_of(&entry.url));
+                    append(sub, MF_STRING, ID_SHORTCUT_BASE + i, &text);
+                }
+                append(menu, MF_POPUP, sub.0 as usize, &label);
+            }
+        }
+    }
+
     fn on_command(&mut self, id: usize) {
         match id {
             // 0 = the menu was dismissed without a choice.
@@ -447,6 +501,11 @@ impl Tray {
                 // window procedure that owns this window.
                 let _ = PostMessageW(self.hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
             },
+            id if id >= ID_SHORTCUT_BASE => {
+                if let Some(entry) = self.shares.get(id - ID_SHORTCUT_BASE).cloned() {
+                    self.create_shortcut(&entry);
+                }
+            }
             id if id >= ID_SHARE_BASE => {
                 if let Some(entry) = self.shares.get(id - ID_SHARE_BASE) {
                     let url = entry.url.clone();
@@ -462,6 +521,23 @@ impl Tray {
         crate::open_url(&net::build_host_url(&cfg));
     }
 
+    fn current_share_entries(&self) -> Vec<ShareEntry> {
+        let cfg = load_config(&self.config_path);
+        net::build_share_entries(&cfg, cfg.share_token())
+    }
+
+    /// The welcome window uses the same physical-NIC-first default as the
+    /// one-click setup. The tray menu remains available when a different NIC
+    /// must be selected explicitly.
+    fn copy_first_share(&self) {
+        let body = match self.current_share_entries().first() {
+            Some(entry) if self.copy(&entry.url) => "tray.share.copiedBody",
+            Some(_) => "tray.share.copyFailedBody",
+            None => "tray.share.noShareBody",
+        };
+        welcome::report_with_title(&self.strings, "tray.share.title", body);
+    }
+
     /// Put `text` on the clipboard. Returns whether it got there — the caller
     /// tells the user, because a silent no-op after "Copy" is indistinguishable
     /// from a successful copy of nothing.
@@ -475,6 +551,101 @@ impl Tray {
             result
         }
     }
+
+    fn create_shortcut(&self, entry: &ShareEntry) {
+        if !welcome::confirm_shortcut(&self.strings) {
+            return;
+        }
+        let result = write_share_shortcut(entry);
+        let body = if result.is_ok() {
+            "tray.shortcut.createdBody"
+        } else {
+            "tray.shortcut.failedBody"
+        };
+        welcome::report_with_title(&self.strings, "tray.shortcut.title", body);
+    }
+
+    fn create_first_shortcut(&self) {
+        match self.current_share_entries().first() {
+            Some(entry) => self.create_shortcut(entry),
+            None => welcome::report_with_title(
+                &self.strings,
+                "tray.shortcut.title",
+                "tray.shortcut.noShareBody",
+            ),
+        }
+    }
+}
+
+/// Write a Windows Internet Shortcut on the user's actual Desktop. The known
+/// folder API matters because Desktop may be redirected into OneDrive.
+fn write_share_shortcut(entry: &ShareEntry) -> std::io::Result<PathBuf> {
+    let desktop = desktop_directory()?;
+    let path = shortcut_path(&desktop, entry)?;
+    let mut contents = format!(
+        "[InternetShortcut]\r\nURL={}\r\nComment=Remote Audio share shortcut\r\n",
+        entry.url
+    );
+    if let Ok(exe) = std::env::current_exe() {
+        contents.push_str(&format!("IconFile={}\r\nIconIndex=0\r\n", exe.display()));
+    }
+    fs::write(&path, contents)?;
+    Ok(path)
+}
+
+fn desktop_directory() -> std::io::Result<PathBuf> {
+    unsafe {
+        let raw = SHGetKnownFolderPath(&FOLDERID_Desktop, KF_FLAG_DEFAULT, None::<&HANDLE>)
+            .map_err(to_io)?;
+        let path = raw
+            .to_string()
+            .map_err(|e| std::io::Error::other(e.to_string()));
+        CoTaskMemFree(Some(raw.0.cast()));
+        path.map(PathBuf::from)
+    }
+}
+
+/// Use an address in the filename so multiple NIC choices produce separate
+/// shortcuts. Invalid Windows filename characters are replaced, and the token
+/// never participates in the name.
+fn shortcut_path(desktop: &Path, entry: &ShareEntry) -> std::io::Result<PathBuf> {
+    let address = address_of(&entry.url);
+    let safe_address: String = address
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let stem = format!("Remote Audio - {safe_address}");
+
+    for suffix in 0..1000 {
+        let name = if suffix == 0 {
+            format!("{stem}.url")
+        } else {
+            format!("{stem} ({suffix}).url")
+        };
+        let candidate = desktop.join(name);
+        if !candidate.exists() || is_audio_remote_shortcut(&candidate) {
+            return Ok(candidate);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not find a free desktop shortcut name",
+    ))
+}
+
+fn is_audio_remote_shortcut(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .map(|contents| {
+            contents.contains("Comment=Remote Audio share shortcut")
+                || contents.contains("Comment=AudioRemote share shortcut")
+        })
+        .unwrap_or(false)
 }
 
 /// Everything the window procedure has to do, once the state pointer is known.
@@ -646,8 +817,10 @@ fn to_io(e: windows::core::Error) -> std::io::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{address_of, fill, listening_address};
+    use super::{address_of, fill, listening_address, shortcut_path};
     use crate::config::Config;
+    use crate::net::ShareEntry;
+    use std::path::Path;
 
     #[test]
     fn a_host_only_bind_shows_the_loopback_address() {
@@ -676,6 +849,21 @@ mod tests {
         let url = "http://192.0.2.10:17650/#t=ar_live_0123456789abcdef";
         assert_eq!(address_of(url), "192.0.2.10:17650");
         assert!(!address_of(url).contains("ar_live"));
+    }
+
+    #[test]
+    fn desktop_shortcut_name_contains_address_but_not_token() {
+        let entry = ShareEntry {
+            url: "http://192.0.2.10:17650/#t=ar_live_secret".to_string(),
+            interface: "Ethernet".to_string(),
+            virtual_iface: false,
+        };
+        let path = shortcut_path(Path::new("Desktop"), &entry).unwrap();
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("Remote Audio - 192.0.2.10-17650.url")
+        );
+        assert!(!path.to_string_lossy().contains("ar_live"));
     }
 
     #[test]

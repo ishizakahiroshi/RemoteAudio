@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!--
-  Embedded into audioremote.exe by build.rs (winresource -> RT_MANIFEST id 1).
+  Embedded into RemoteAudio.exe by build.rs (winresource -> RT_MANIFEST id 1).
 
   Not optional. `TaskDialogIndirect`, which draws the welcome window, only
   exists in version 6 of comctl32 — without the dependency below the import

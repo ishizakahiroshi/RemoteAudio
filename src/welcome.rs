@@ -20,20 +20,41 @@ use windows::Win32::UI::Controls::{
     TDCBF_CLOSE_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_USE_COMMAND_LINKS, TDF_USE_HICON_MAIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyIcon, GetSystemMetrics, SM_CXICON, SM_CYICON,
+    DestroyIcon, GetSystemMetrics, MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_YESNO,
+    SM_CXICON, SM_CYICON,
 };
 
 use crate::assets;
 use crate::lang::Strings;
 
-/// Command id of the "finish setting up" / "open" button. Anything outside the
-/// `IDOK`…`IDCONTINUE` range is safe; 100 keeps it obvious in a debugger.
-const ID_ACTION: i32 = 100;
+/// Command ids for the welcome window's command links. Anything outside the
+/// `IDOK`…`IDCONTINUE` range is safe; keeping them together makes the mapping
+/// back to [`WelcomeAction`] explicit.
+const ID_SETUP: i32 = 100;
+const ID_OPEN: i32 = 101;
+const ID_COPY_SHARE: i32 = 102;
+const ID_CREATE_SHORTCUT: i32 = 103;
+
+struct DialogAction {
+    id: i32,
+    text: String,
+}
+
+/// What the user selected in the welcome window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WelcomeAction {
+    None,
+    Setup,
+    Open,
+    CopyShare,
+    CreateShortcut,
+}
 
 /// What the user did with the welcome window.
 pub struct Choice {
-    /// They pressed the action button rather than closing the window.
-    pub act: bool,
+    /// The command link they pressed, or [`WelcomeAction::None`] if they
+    /// closed the window.
+    pub action: WelcomeAction,
     /// They left "don't show this again" unticked, so it should appear next
     /// time too.
     pub keep_showing: bool,
@@ -53,22 +74,62 @@ pub struct Choice {
 /// setup raises no UAC prompt, so promising one would be a lie in the one place
 /// the promise exists to stop a nasty surprise.
 pub fn ask(strings: &Strings, setup_done: bool, packaged: bool) -> Choice {
-    let (action_key, note_key) = match (setup_done, packaged) {
-        (true, _) => ("tray.welcome.openButton", "tray.welcome.openNote"),
-        (false, true) => ("tray.welcome.setupButton", "tray.welcome.setupNotePackaged"),
-        (false, false) => ("tray.welcome.setupButton", "tray.welcome.setupNote"),
-    };
     // A command link renders the text before the first newline as the headline
-    // and the rest as the smaller line beneath it.
-    let action = format!("{}\n{}", strings.get(action_key), strings.get(note_key));
+    // and the rest as the smaller line beneath it. Once setup is complete,
+    // this same welcome window is also the convenient home for the two common
+    // hand-off actions: copy the URL or make a desktop shortcut.
+    let actions = if setup_done {
+        vec![
+            DialogAction {
+                id: ID_OPEN,
+                text: format!(
+                    "{}\n{}",
+                    strings.get("tray.welcome.openButton"),
+                    strings.get("tray.welcome.openNote")
+                ),
+            },
+            DialogAction {
+                id: ID_COPY_SHARE,
+                text: format!(
+                    "{}\n{}",
+                    strings.get("tray.menu.copyShare"),
+                    strings.get("tray.welcome.copyNote")
+                ),
+            },
+            DialogAction {
+                id: ID_CREATE_SHORTCUT,
+                text: format!(
+                    "{}\n{}",
+                    strings.get("tray.menu.createShortcut"),
+                    strings.get("tray.welcome.shortcutNote")
+                ),
+            },
+        ]
+    } else {
+        let note_key = if packaged {
+            "tray.welcome.setupNotePackaged"
+        } else {
+            "tray.welcome.setupNote"
+        };
+        vec![DialogAction {
+            id: ID_SETUP,
+            text: format!(
+                "{}\n{}",
+                strings.get("tray.welcome.setupButton"),
+                strings.get(note_key)
+            ),
+        }]
+    };
 
     let mut pressed = 0i32;
     let mut checked = BOOL(0);
+    let dont_show_again = strings.get("tray.welcome.dontShowAgain");
     let shown = show(
         strings,
         &strings.get("tray.welcome.title"),
         &strings.get("tray.welcome.body"),
-        Some((&action, &strings.get("tray.welcome.dontShowAgain"))),
+        &actions,
+        Some(&dont_show_again),
         Some((&mut pressed, &mut checked)),
     );
 
@@ -77,12 +138,19 @@ pub fn ask(strings: &Strings, setup_done: bool, packaged: bool) -> Choice {
         // answer: the alternative silently switches off an announcement that
         // was never made in the first place.
         return Choice {
-            act: false,
+            action: WelcomeAction::None,
             keep_showing: true,
         };
     }
+    let action = match pressed {
+        ID_SETUP => WelcomeAction::Setup,
+        ID_OPEN => WelcomeAction::Open,
+        ID_COPY_SHARE => WelcomeAction::CopyShare,
+        ID_CREATE_SHORTCUT => WelcomeAction::CreateShortcut,
+        _ => WelcomeAction::None,
+    };
     Choice {
-        act: pressed == ID_ACTION,
+        action,
         keep_showing: !checked.as_bool(),
     }
 }
@@ -92,10 +160,32 @@ pub fn ask(strings: &Strings, setup_done: bool, packaged: bool) -> Choice {
 /// Separate from [`ask`] because it carries exactly what the balloon used to,
 /// and the point of this module is that it can no longer be dropped on the way.
 pub fn report(strings: &Strings, body_key: &str) {
+    report_with_title(strings, "tray.setup.doneTitle", body_key);
+}
+
+/// Show a confirmation before writing a share URL (and its live token) to a
+/// desktop shortcut. The default is No so an accidental menu click cannot
+/// create a credential-bearing file.
+pub fn confirm_shortcut(strings: &Strings) -> bool {
+    let title = wide(&strings.get("tray.shortcut.title"));
+    let body = wide(&strings.get("tray.shortcut.confirmBody"));
+    unsafe {
+        MessageBoxW(
+            None::<&HWND>,
+            PCWSTR(body.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+        ) == IDYES
+    }
+}
+
+/// Show a result dialog with a caller-selected title.
+pub fn report_with_title(strings: &Strings, title_key: &str, body_key: &str) {
     show(
         strings,
-        &strings.get("tray.setup.doneTitle"),
+        &strings.get(title_key),
         &strings.get(body_key),
+        &[],
         None,
         None,
     );
@@ -111,6 +201,7 @@ pub fn already_running(strings: &Strings) {
         strings,
         &strings.get("tray.alreadyRunning.title"),
         &strings.get("tray.alreadyRunning.body"),
+        &[],
         None,
         None,
     );
@@ -121,7 +212,8 @@ fn show(
     strings: &Strings,
     instruction: &str,
     content: &str,
-    action: Option<(&str, &str)>,
+    actions: &[DialogAction],
+    verification_text: Option<&str>,
     out: Option<(&mut i32, &mut BOOL)>,
 ) -> bool {
     let title = wide(&strings.get("brand.name"));
@@ -129,16 +221,16 @@ fn show(
     let content = wide(content);
 
     // Held for the whole call: the config only stores pointers into these.
-    let action_text = action.map(|(text, _)| wide(text));
-    let verification = action.map(|(_, text)| wide(text));
-    let buttons = [TASKDIALOG_BUTTON {
-        nButtonID: ID_ACTION,
-        pszButtonText: PCWSTR(
-            action_text
-                .as_ref()
-                .map_or(std::ptr::null(), |v| v.as_ptr()),
-        ),
-    }];
+    let action_texts: Vec<Vec<u16>> = actions.iter().map(|action| wide(&action.text)).collect();
+    let buttons: Vec<TASKDIALOG_BUTTON> = actions
+        .iter()
+        .zip(action_texts.iter())
+        .map(|(action, text)| TASKDIALOG_BUTTON {
+            nButtonID: action.id,
+            pszButtonText: PCWSTR(text.as_ptr()),
+        })
+        .collect();
+    let verification = verification_text.map(wide);
 
     // Sized from the *system* metric rather than a constant: the process is
     // per-monitor DPI aware (see the manifest), so this is already the right
@@ -150,7 +242,7 @@ fn show(
     if !icon.is_invalid() {
         flags |= TDF_USE_HICON_MAIN;
     }
-    if action.is_some() {
+    if !actions.is_empty() {
         flags |= TDF_USE_COMMAND_LINKS;
     }
 
@@ -170,13 +262,13 @@ fn show(
         Anonymous1: TASKDIALOGCONFIG_0 { hMainIcon: icon },
         pszMainInstruction: PCWSTR(instruction.as_ptr()),
         pszContent: PCWSTR(content.as_ptr()),
-        cButtons: if action.is_some() { 1 } else { 0 },
-        pButtons: if action.is_some() {
+        cButtons: actions.len() as u32,
+        pButtons: if !actions.is_empty() {
             buttons.as_ptr()
         } else {
             std::ptr::null()
         },
-        nDefaultButton: if action.is_some() { ID_ACTION } else { 0 },
+        nDefaultButton: actions.first().map_or(0, |action| action.id),
         pszVerificationText: PCWSTR(
             verification
                 .as_ref()

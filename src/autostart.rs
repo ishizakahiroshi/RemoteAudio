@@ -29,7 +29,7 @@ const FIREWALL_PROFILES: &str = "private,domain";
 /// A package manifest cannot read `config.toml`, so its `windows.firewallRules`
 /// declaration (`packaging/msix/AppxManifest.xml`) is pinned to one number, and
 /// that number has to be the default port. Move the server off it with
-/// `audioremote setup` and the Store build needs a hand-added rule — which is
+/// `RemoteAudio setup` and the Store build needs a hand-added rule — which is
 /// only findable if the app says so, hence this constant existing at all.
 ///
 /// Kept honest by `packaged_firewall_port_matches_the_default` below; the
@@ -413,18 +413,18 @@ mod tests {
 
     #[test]
     fn command_quotes_paths_with_spaces_and_unicode() {
-        let path = Path::new(r"C:\Tools\音声 Remote\audioremote.exe");
+        let path = Path::new(r"C:\Tools\音声 Remote\RemoteAudio.exe");
         assert_eq!(
             command_value(path),
-            r#""C:\Tools\音声 Remote\audioremote.exe" supervise"#
+            r#""C:\Tools\音声 Remote\RemoteAudio.exe" supervise"#
         );
     }
 
     #[test]
     fn command_keeps_argument_boundary() {
         assert_eq!(
-            command_value(Path::new(r"C:\audioremote.exe")),
-            r#""C:\audioremote.exe" supervise"#
+            command_value(Path::new(r"C:\RemoteAudio.exe")),
+            r#""C:\RemoteAudio.exe" supervise"#
         );
     }
 
@@ -433,7 +433,7 @@ mod tests {
         // v0.1 registered `serve --no-open` here. A logon entry that starts the
         // server directly cannot restart it after a crash, which is the whole
         // reason the supervisor exists — so the day this reverts, it fails.
-        let value = command_value(Path::new(r"C:\audioremote.exe"));
+        let value = command_value(Path::new(r"C:\RemoteAudio.exe"));
         assert!(value.ends_with(" supervise"), "{value}");
         assert!(!value.contains("serve"), "{value}");
     }
@@ -441,11 +441,11 @@ mod tests {
     #[test]
     fn the_manual_firewall_hint_is_pasteable() {
         let hint =
-            firewall_command_hint(Some(Path::new(r"C:\Program Files\audioremote.exe")), 17650);
+            firewall_command_hint(Some(Path::new(r"C:\Program Files\RemoteAudio.exe")), 17650);
         // The path has a space in it, so an unquoted `program=` would silently
         // register a rule for `C:\Program`.
         assert!(
-            hint.contains(r#"program="C:\Program Files\audioremote.exe""#),
+            hint.contains(r#"program="C:\Program Files\RemoteAudio.exe""#),
             "{hint}"
         );
         assert!(

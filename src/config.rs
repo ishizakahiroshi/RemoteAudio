@@ -26,6 +26,9 @@ pub struct Config {
 pub struct TrayConfig {
     /// `auto` follows the Windows UI language; `ja` / `en` pin it.
     pub ui_language: String,
+    /// Retry a crashed `serve` child from resident mode. Direct `serve` runs
+    /// never consult this flag because they do not have a supervisor.
+    pub auto_restart: bool,
     /// Show the welcome window at startup.
     ///
     /// On until the user ticks "don't show this again" in the window itself.
@@ -43,6 +46,7 @@ impl Default for TrayConfig {
     fn default() -> Self {
         Self {
             ui_language: "auto".to_string(),
+            auto_restart: true,
             show_welcome: true,
             setup_done: false,
         }
@@ -68,7 +72,7 @@ impl Default for ServerConfig {
             // LAN-first: the whole point is to control the host from another
             // machine on the LAN (Win11 guest / phone / VM). Non-loopback
             // clients still need a bearer token; loopback is bypassed. Set to
-            // "127.0.0.1" via `audioremote setup` to lock it down.
+            // "127.0.0.1" via `RemoteAudio setup` to lock it down.
             bind: "0.0.0.0".to_string(),
             port: 17650,
             allowed_networks: Vec::new(),
@@ -85,7 +89,7 @@ pub struct AuthConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// Named bearer tokens. A request authenticates if its bearer matches any
-    /// entry with `revoked = false`. Managed via `audioremote token add|revoke`.
+    /// entry with `revoked = false`. Managed via `RemoteAudio token add|revoke`.
     #[serde(default)]
     pub tokens: Vec<TokenEntry>,
     pub require_token: bool,
@@ -104,7 +108,7 @@ impl Default for AuthConfig {
 /// One named bearer token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenEntry {
-    /// Human label shown by `audioremote token list`. Not required to be unique;
+    /// Human label shown by `RemoteAudio token list`. Not required to be unique;
     /// revoke-by-name acts on every non-revoked match.
     pub name: String,
     pub token: String,
@@ -362,7 +366,7 @@ pub fn save(path: &Path, config: &Config) -> std::io::Result<()> {
 }
 
 /// Re-read just the `[auth]` section. The running server calls this to pick up
-/// `audioremote token add|revoke` without a restart (see `crate::auth`); it never
+/// `RemoteAudio token add|revoke` without a restart (see `crate::auth`); it never
 /// writes and never migrates the file — startup already did that.
 pub fn load_auth(path: &Path) -> std::io::Result<AuthConfig> {
     let text = fs::read_to_string(path)?;
@@ -495,6 +499,13 @@ mod tests {
         c.server.bind = bind.to_string();
         c.server.port = port;
         c
+    }
+
+    #[test]
+    fn resident_crash_recovery_defaults_to_on() {
+        assert!(Config::default().tray.auto_restart);
+        let parsed: Config = toml::from_str("[tray]\n").expect("config with omitted recovery flag");
+        assert!(parsed.tray.auto_restart);
     }
 
     // ---- bind / port boundaries (AR-AUD-10) --------------------------------
@@ -740,7 +751,7 @@ mod tests {
         let (mut cfg, _) = load_or_init(&path).expect("load");
         let original = cfg.share_token().expect("token").to_string();
 
-        // Stand in for `audioremote token add` running as a separate process.
+        // Stand in for `RemoteAudio token add` running as a separate process.
         let added = add_named_token(&mut cfg, "guest");
         revoke_token(&mut cfg, &original);
         save(&path, &cfg).expect("save");

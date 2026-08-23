@@ -1,8 +1,8 @@
 {
     "##": [
-        "Master copy. The bucket that users add lives at ishizakahiroshi/scoop-bucket;",
-        "this file is copied there. Keeping the original in the product repo means the",
-        "package can be reconstructed from the thing it packages.",
+        "Learning/reference manifest only. Scoop is not a supported v0.2 channel;",
+        "no public bucket is planned. If the channel is revived, copy this file into",
+        "the bucket repository and keep this original so the package is reproducible.",
         "",
         "hash.url points at the release's own SHA256SUMS.txt so autoupdate reads the",
         "checksum the build produced. Pasting a hash by hand is how a bucket ends up",
@@ -10,11 +10,11 @@
     ],
     "version": "0.1.0",
     "description": "Switch your Windows 11 host's default audio output device from any browser on the LAN",
-    "homepage": "https://github.com/ishizakahiroshi/audioremote",
+    "homepage": "https://github.com/ishizakahiroshi/RemoteAudio",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/ishizakahiroshi/audioremote/releases/download/v0.1.0/audioremote-win32-x64.zip",
+            "url": "https://github.com/ishizakahiroshi/RemoteAudio/releases/download/v0.1.0/audioremote-win32-x64.zip",
             "hash": "45bc534702ecf220adfee9ba6818c09ac44f947545276d1b253a2a4b3e2176bd"
         }
     },
@@ -29,12 +29,12 @@
         "over RDP - audio endpoints belong to the interactive user."
     ],
     "checkver": {
-        "github": "https://github.com/ishizakahiroshi/audioremote"
+        "github": "https://github.com/ishizakahiroshi/RemoteAudio"
     },
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/ishizakahiroshi/audioremote/releases/download/v$version/audioremote-win32-x64.zip"
+                "url": "https://github.com/ishizakahiroshi/RemoteAudio/releases/download/v$version/audioremote-win32-x64.zip"
             }
         },
         "hash": {

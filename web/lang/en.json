@@ -4,7 +4,7 @@
   "loading": "Loading…",
   "connecting": "Connecting…",
 
-  "brand.name": "AudioRemote",
+  "brand.name": "Remote Audio",
 
   "tokenEntry.hint": "Paste the token issued by the host's HTTP server.",
   "tokenEntry.button": "Connect",
@@ -95,7 +95,7 @@
   "about.linkReport": "Report a problem (GitHub issue)",
   "about.reportNote": "The report link pre-fills exactly four values: app version, build, host OS, and browser. Device names, tokens, and IP addresses are never included.",
 
-  "report.template": "## What I did\n\n\n## What I expected\n\n\n## What happened instead\n\n\n## Environment (pre-filled)\n\n- audioremote: v{version} ({build})\n- Host OS: {os}\n- Browser: {ua}\n",
+  "report.template": "## What I did\n\n\n## What I expected\n\n\n## What happened instead\n\n\n## Environment (pre-filled)\n\n- Remote Audio: v{version} ({build})\n- Host OS: {os}\n- Browser: {ua}\n",
 
   "toast.switchFailed": "Switch failed: {msg}",
   "toast.volumeFailed": "Volume change failed: {msg}",
@@ -106,38 +106,53 @@
   "tray.state.restarting": "Restarting",
   "tray.state.stopped": "Stopped",
   "tray.state.failed": "Stopped after repeated failures",
+  "tray.state.autoRestartOff": "Stopped — automatic recovery is off",
 
-  "tray.tooltip": "AudioRemote — {state} — {address}",
+  "tray.tooltip": "Remote Audio — {state} — {address}",
 
-  "tray.menu.open": "Open AudioRemote",
-  "tray.menu.copyShare": "Copy share URL",
+  "tray.menu.open": "Open Remote Audio",
+  "tray.menu.copyShare": "Copy share URL (includes connection token)",
+  "tray.menu.createShortcut": "Create desktop shortcut",
   "tray.menu.restart": "Restart server",
   "tray.menu.stop": "Stop server",
   "tray.menu.start": "Start server",
   "tray.menu.quit": "Quit",
 
-  "tray.share.noLan": "LAN access is off — run `audioremote setup` to enable it",
-  "tray.share.noToken": "No usable token — run `audioremote token add <name>`",
+  "tray.share.noLan": "LAN access is off — run `RemoteAudio setup` to enable it",
+  "tray.share.noToken": "No usable token — run `RemoteAudio token add <name>`",
   "tray.share.noNic": "No LAN address on this host yet",
 
-  "tray.welcome.title": "AudioRemote is running in the notification area",
-  "tray.welcome.body": "Closing this window does not stop it. Its icon sits next to the clock, and opens the app at any time. If you cannot see it, click the \"∧\" left of the clock to show hidden icons.",
+  "tray.welcome.title": "Remote Audio is running in the notification area",
+  "tray.welcome.body": "Closing this window does not stop it. Its icon sits next to the clock, and opens the app at any time. If you cannot see it, click the \"∧\" left of the clock to show hidden icons. If the server exits unexpectedly, Remote Audio retries it up to 5 times with increasing waits. After repeated failures it stops and shows the state in the tray. You can turn automatic recovery off with RemoteAudio setup.",
   "tray.welcome.setupButton": "Finish setting up",
-  "tray.welcome.setupNote": "Starts AudioRemote at sign-in, allows connections from your LAN (Windows asks for permission once), and copies the share URL.",
-  "tray.welcome.setupNotePackaged": "Copies the share URL. Start at sign-in is already on in the Store edition, so nothing here is changed.",
-  "tray.welcome.openButton": "Open AudioRemote",
+  "tray.welcome.setupNote": "Starts Remote Audio at sign-in, allows connections from your LAN (Windows asks for permission once), and copies the share URL, including its connection token.",
+  "tray.welcome.setupNotePackaged": "Copies the share URL, including its connection token. Start at sign-in is already on in the Store edition, so nothing here is changed.",
+  "tray.welcome.openButton": "Open Remote Audio",
   "tray.welcome.openNote": "Opens this host's page in your default browser.",
+  "tray.welcome.copyNote": "Copies the share URL, including its connection token, to the clipboard.",
+  "tray.welcome.shortcutNote": "Saves the share URL, including its connection token, on the Desktop.",
   "tray.welcome.dontShowAgain": "Don't show this again",
-  "tray.alreadyRunning.title": "AudioRemote is already running",
+  "tray.alreadyRunning.title": "Remote Audio is already running",
   "tray.alreadyRunning.body": "Its icon is in the notification area, to the left of the clock. If you cannot see it, click the \"^\" button to show hidden icons.\n\nA second copy cannot use the listening port, so it can do nothing. Closing this window ends it; the first one keeps running.",
 
-  "tray.callout.here": "AudioRemote lives here",
+  "tray.callout.here": "Remote Audio lives here",
 
-  "tray.setup.doneTitle": "AudioRemote setup",
-  "tray.setup.doneBody": "Start at logon is on and LAN access is allowed. The share URL is on your clipboard — paste it into the browser on your other machine.\n\nClose this window and an arrow will point at AudioRemote's icon. That icon is how you open it from now on.",
-  "tray.setup.noFirewallBody": "Start at logon is on and the share URL is on your clipboard. LAN access was not allowed, so other machines may not reach this host yet.\n\nClose this window and an arrow will point at AudioRemote's icon. That icon is how you open it from now on.",
-  "tray.setup.noShareBody": "Start at logon is on. There is no share URL to copy yet — LAN access is off, or there is no usable token.\n\nClose this window and an arrow will point at AudioRemote's icon. That icon is how you open it from now on.",
-  "tray.setup.failedBody": "Setup did not finish. Run `audioremote --install-autostart` from a terminal.\n\nAudioRemote itself is running. Close this window and an arrow will point at its icon.",
-  "tray.setup.packagedBody": "The share URL is on your clipboard — paste it into the browser on your other machine.\n\nStart at sign-in and LAN access are both on already in the Store edition (start at sign-in can be switched off in Task Manager → Startup apps).\n\nClose this window and an arrow will point at AudioRemote's icon. That icon is how you open it from now on.",
-  "tray.setup.packagedNoShareBody": "There is no share URL to copy yet — LAN access is off, or there is no usable token.\n\nStart at sign-in and LAN access are both on already in the Store edition.\n\nClose this window and an arrow will point at AudioRemote's icon. That icon is how you open it from now on."
+  "tray.setup.doneTitle": "Remote Audio setup",
+  "tray.setup.doneBody": "Start at logon is on and LAN access is allowed. The share URL, including its connection token, is on your clipboard — paste it into the browser on your other machine.\n\nClose this window and an arrow will point at Remote Audio's icon. That icon is how you open it from now on.",
+  "tray.setup.noFirewallBody": "Start at logon is on and the share URL, including its connection token, is on your clipboard. LAN access was not allowed, so other machines may not reach this host yet.\n\nClose this window and an arrow will point at Remote Audio's icon. That icon is how you open it from now on.",
+  "tray.setup.noShareBody": "Start at logon is on. There is no share URL to copy yet — LAN access is off, or there is no usable token.\n\nClose this window and an arrow will point at Remote Audio's icon. That icon is how you open it from now on.",
+  "tray.setup.failedBody": "Setup did not finish. Run `RemoteAudio.exe --install-autostart` from a terminal.\n\nRemote Audio itself is running. Close this window and an arrow will point at its icon.",
+  "tray.setup.packagedBody": "The share URL, including its connection token, is on your clipboard — paste it into the browser on your other machine.\n\nStart at sign-in and LAN access are both on already in the Store edition (start at sign-in can be switched off in Task Manager → Startup apps).\n\nClose this window and an arrow will point at Remote Audio's icon. That icon is how you open it from now on.",
+  "tray.setup.packagedNoShareBody": "There is no share URL to copy yet — LAN access is off, or there is no usable token.\n\nStart at sign-in and LAN access are both on already in the Store edition.\n\nClose this window and an arrow will point at Remote Audio's icon. That icon is how you open it from now on.",
+
+  "tray.shortcut.title": "Remote Audio desktop shortcut",
+  "tray.shortcut.confirmBody": "This shortcut will store a share URL containing a live connection token. Anyone who can open the file can connect without entering a token.\n\nCreate it on the Desktop? An existing Remote Audio shortcut with the same name will be updated.",
+  "tray.shortcut.createdBody": "The Remote Audio shortcut was created on the Desktop. It contains a connection token, so treat this file like a password.",
+  "tray.shortcut.failedBody": "The desktop shortcut could not be created. Check that the Desktop is writable.",
+  "tray.shortcut.noShareBody": "There is no share URL to save, so the shortcut could not be created. LAN access may be off, or there may be no usable token.",
+
+  "tray.share.title": "Share URL",
+  "tray.share.copiedBody": "The share URL, including its connection token, is on the clipboard. Paste it into the browser on your other machine.",
+  "tray.share.copyFailedBody": "The share URL could not be copied. Another application may be using the clipboard.",
+  "tray.share.noShareBody": "There is no share URL yet. LAN access may be off, or there may be no usable token."
 }

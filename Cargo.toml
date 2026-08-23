@@ -10,8 +10,8 @@ rust-version = "1.85"
 description = "Switch your Windows 11 host's default audio output device from any browser on the LAN"
 readme = "README.md"
 license = "MIT"
-repository = "https://github.com/ishizakahiroshi/audioremote"
-homepage = "https://github.com/ishizakahiroshi/audioremote"
+repository = "https://github.com/ishizakahiroshi/RemoteAudio"
+homepage = "https://github.com/ishizakahiroshi/RemoteAudio"
 keywords = ["windows", "audio", "core-audio", "remote", "endpoint"]
 categories = ["command-line-utilities", "multimedia::audio", "os::windows-apis"]
 authors = ["Hiroshi Ishizaka (ishizakahiroshi) <ishizakahiroshi.dev@gmail.com>"]
@@ -29,7 +29,7 @@ include = [
 ]
 
 [[bin]]
-name = "audioremote"
+name = "RemoteAudio"
 path = "src/main.rs"
 
 [dependencies]
@@ -80,6 +80,9 @@ windows = { version = "0.58", features = [
     "Win32_Security",
     "Win32_System_Threading",
     "Win32_UI_Shell_PropertiesSystem",
+    # tray.rs: SHGetKnownFolderPath locates the user's actual Desktop, including
+    # OneDrive/known-folder redirection, for the explicit share shortcut action.
+    "Win32_UI_Shell",
     # autostart.rs: `ShellExecuteExW` with the `runas` verb needs SW_HIDE.
     # tray.rs: the window class, popup menu and icon decoding all live here.
     "Win32_UI_WindowsAndMessaging",

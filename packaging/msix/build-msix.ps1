@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-  release ビルドの audioremote.exe を MSIX パッケージ化する。
+  release ビルドの RemoteAudio.exe を MSIX パッケージ化する。
 
 .DESCRIPTION
-  target\release\audioremote.exe と assets\msix\ のロゴをステージングし、
+  target\release\RemoteAudio.exe と assets\msix\ のロゴをステージングし、
   MakeAppx で dist\msix\audioremote-<X.Y.Z.0>.msix を作る。既定は「パックのみ」。
 
     -Sign     AppxManifest の Publisher と同じ Subject の自己署名証明書で署名する
@@ -29,7 +29,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
-$ExePath = Join-Path $RepoRoot "target\release\audioremote.exe"
+$ExePath = Join-Path $RepoRoot "target\release\RemoteAudio.exe"
 $LogoDir = Join-Path $RepoRoot "assets\msix"
 $CargoToml = Join-Path $RepoRoot "Cargo.toml"
 $ManifestTemplate = Join-Path $ScriptDir "AppxManifest.xml"
@@ -72,7 +72,7 @@ if (Test-Path $StageDir) { Remove-Item $StageDir -Recurse -Force }
 New-Item -ItemType Directory -Force $StageDir | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $StageDir "Assets") | Out-Null
 
-Copy-Item $ExePath (Join-Path $StageDir "audioremote.exe") -Force
+Copy-Item $ExePath (Join-Path $StageDir "RemoteAudio.exe") -Force
 
 # AppxManifest が参照する 4 枚。欠けたまま pack すると MakeAppx が落ちるが、
 # 「どれが無いのか」は出ないのでここで名指しして止める。
@@ -154,8 +154,8 @@ if ($Install) {
 
 Write-Host ""
 Write-Host "== 次の確認 =="
-Write-Host "  起動            : スタートメニューの audioremote（コンソール窓が出ずトレイに常駐すること）"
-Write-Host "  スタートアップ  : タスクマネージャー → スタートアップ アプリ に AudioRemote が出ること"
+Write-Host "  起動            : スタートメニューの Remote Audio（コンソール窓が出ずトレイに常駐すること）"
+Write-Host "  スタートアップ  : タスクマネージャー → スタートアップ アプリ に Remote Audio が出ること"
 Write-Host "  PackageFullName : (Get-AppxPackage *audioremote*).PackageFullName"
 Write-Host "  アンインストール: Remove-AppxPackage (Get-AppxPackage *audioremote*).PackageFullName"
 Write-Host "  WACK            : 管理者 PowerShell で packaging\msix\run-wack.ps1"

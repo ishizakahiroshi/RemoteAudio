@@ -378,7 +378,7 @@ async fn restart_handler(State(state): State<AppState>) -> Response {
     if !state.supervised {
         let body = serde_json::json!({
             "error": "not_supervised",
-            "message": "this server was started directly (`audioremote serve`), so there is nobody to restart it",
+            "message": "this server was started directly (`RemoteAudio serve`), so there is nobody to restart it",
         });
         return (StatusCode::NOT_IMPLEMENTED, Json(body)).into_response();
     }
@@ -1081,7 +1081,7 @@ mod tests {
             history: Arc::new(Mutex::new(History::default())),
             history_path: Arc::new(dir.join("history.toml")),
             allowed_hosts: Arc::new(allowed_hosts.into_iter().collect()),
-            // Matches a bare `audioremote serve`, which is what these tests
+            // Matches a bare `RemoteAudio serve`, which is what these tests
             // model. The supervised path is covered by its own test below.
             supervised: false,
         }
@@ -1238,7 +1238,7 @@ mod tests {
 
     #[tokio::test]
     async fn restart_is_refused_when_nothing_is_supervising() {
-        // `audioremote serve` run by hand. Honouring the request here would end
+        // `RemoteAudio serve` run by hand. Honouring the request here would end
         // with no server at all and nobody on the host to notice.
         let addr = spawn_test_server().await;
         let response = tokio::task::spawn_blocking(move || same_origin_post(addr, "/api/restart"))

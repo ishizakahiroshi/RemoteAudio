@@ -1,4 +1,12 @@
-# Getting AudioRemote into Scoop
+# Scoop reference (not a v0.2 release task)
+
+AudioRemote is **not publishing a Scoop bucket in v0.2**. The supported
+distribution paths are Microsoft Store and winget. This folder is retained as
+a learning/reference artifact for Scoop manifests and autoupdate workflows;
+do not create `ishizakahiroshi/scoop-bucket` as part of the current release.
+
+The instructions below are intentionally kept for a future revisit or a
+standalone learning exercise.
 
 Scoop has no central review queue. You publish a **bucket** — a git repository
 holding manifests — and users add it by URL. So this is entirely under your own
@@ -15,7 +23,7 @@ control, and there is nothing to wait for.
 the original stays here so the package can be rebuilt from the repository that
 produces it.
 
-## Creating the bucket, once
+## If Scoop is revisited later: creating the bucket
 
 1. Create a public repository named `scoop-bucket` on the account that owns
    this project. The name is a convention, not a requirement, but every bucket
@@ -79,6 +87,6 @@ Do this on a copy — with `-Update` it rewrites the file it is given.
   checksum the build produced instead of computing its own. A bucket that
   pastes a hash by hand is a bucket claiming a digest nobody verified.
 - **`bin` must match the file inside the zip.** The release archive holds
-  `audioremote.exe` at its root, with no directory around it.
+  `RemoteAudio.exe` at its root, with no directory around it.
 - **The exe is unsigned.** Scoop does not care, but SmartScreen still warns on
   first run.

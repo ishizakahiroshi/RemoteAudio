@@ -1,4 +1,4 @@
-# Agent Entry Point (audioremote)
+# Agent Entry Point (RemoteAudio)
 
 This repository's operational guidance is maintained in `CLAUDE.md`.
 

@@ -4,7 +4,7 @@
   "loading": "読み込み中…",
   "connecting": "接続中…",
 
-  "brand.name": "AudioRemote",
+  "brand.name": "Remote Audio",
 
   "tokenEntry.hint": "ホストの HTTP サーバーで発行されたトークンを貼り付けてください。",
   "tokenEntry.button": "接続",
@@ -95,7 +95,7 @@
   "about.linkReport": "不具合を報告する（GitHub Issue）",
   "about.reportNote": "報告リンクに自動で入るのは、バージョン・ビルド・ホストの OS・ブラウザ情報の 4 点だけです。デバイス名・トークン・IP アドレスは含まれません。",
 
-  "report.template": "## 発生した操作\n\n\n## 期待した結果\n\n\n## 実際の結果\n\n\n## 環境（自動入力）\n\n- audioremote: v{version} ({build})\n- ホスト OS: {os}\n- ブラウザ: {ua}\n",
+  "report.template": "## 発生した操作\n\n\n## 期待した結果\n\n\n## 実際の結果\n\n\n## 環境（自動入力）\n\n- Remote Audio: v{version} ({build})\n- ホスト OS: {os}\n- ブラウザ: {ua}\n",
 
   "toast.switchFailed": "切替に失敗: {msg}",
   "toast.volumeFailed": "音量変更に失敗: {msg}",
@@ -106,38 +106,53 @@
   "tray.state.restarting": "再起動待ち",
   "tray.state.stopped": "停止中",
   "tray.state.failed": "連続失敗のため停止",
+  "tray.state.autoRestartOff": "自動復帰オフで停止",
 
-  "tray.tooltip": "AudioRemote — {state} — {address}",
+  "tray.tooltip": "Remote Audio — {state} — {address}",
 
   "tray.menu.open": "開く",
-  "tray.menu.copyShare": "共有 URL をコピー",
+  "tray.menu.copyShare": "共有 URL（接続用トークンを含む）をコピー",
+  "tray.menu.createShortcut": "デスクトップにショートカットを作成",
   "tray.menu.restart": "再起動",
   "tray.menu.stop": "停止",
   "tray.menu.start": "開始",
   "tray.menu.quit": "終了",
 
-  "tray.share.noLan": "LAN 公開が無効です（audioremote setup で変更できます）",
-  "tray.share.noToken": "使えるトークンがありません（audioremote token add <名前>）",
+  "tray.share.noLan": "LAN 公開が無効です（RemoteAudio setup で変更できます）",
+  "tray.share.noToken": "使えるトークンがありません（RemoteAudio token add <名前>）",
   "tray.share.noNic": "この PC にまだ LAN アドレスがありません",
 
-  "tray.welcome.title": "AudioRemote は通知領域で動いています",
-  "tray.welcome.body": "この画面を閉じても止まりません。時計の左にあるアイコンから、いつでも開けます。アイコンが見当たらないときは、時計の左の「∧」を押すと隠れたアイコンが出てきます。",
+  "tray.welcome.title": "Remote Audio は通知領域で動いています",
+  "tray.welcome.body": "この画面を閉じても止まりません。時計の左にあるアイコンから、いつでも開けます。アイコンが見当たらないときは、時計の左の「∧」を押すと隠れたアイコンが出てきます。サーバーが予期せず終了した場合は、待ち時間を伸ばしながら最大 5 回まで自動復帰を試みます。繰り返し失敗した場合は停止し、トレイに状態を表示します。自動復帰は RemoteAudio setup で無効にできます。",
   "tray.welcome.setupButton": "初期設定を済ませる",
-  "tray.welcome.setupNote": "サインイン時の自動起動を登録し、LAN からの接続を許可し（Windows の確認が 1 回出ます）、共有 URL をコピーします。",
-  "tray.welcome.setupNotePackaged": "共有 URL をコピーします。サインイン時の自動起動はストア版では最初から有効なので、ここでは何も変更しません。",
-  "tray.welcome.openButton": "AudioRemote を開く",
+  "tray.welcome.setupNote": "サインイン時の自動起動を登録し、LAN からの接続を許可し（Windows の確認が 1 回出ます）、接続用トークンを含む共有 URL をクリップボードにコピーします。",
+  "tray.welcome.setupNotePackaged": "接続用トークンを含む共有 URL をクリップボードにコピーします。サインイン時の自動起動はストア版では最初から有効なので、ここでは何も変更しません。",
+  "tray.welcome.openButton": "Remote Audio を開く",
   "tray.welcome.openNote": "既定のブラウザでこのパソコンの画面を開きます。",
+  "tray.welcome.copyNote": "接続用トークンを含む共有 URL をクリップボードにコピーします。",
+  "tray.welcome.shortcutNote": "接続用トークンを含む共有 URL をデスクトップに保存します。",
   "tray.welcome.dontShowAgain": "次回から表示しない",
-  "tray.alreadyRunning.title": "AudioRemote はすでに動いています",
-  "tray.alreadyRunning.body": "通知領域（時計の左）に AudioRemote のアイコンがあります。見当たらないときは「∧」を押すと、隠れているアイコンが出てきます。\n\n2 つ目は待受ポートを使えないため何もできません。この画面を閉じると 2 つ目は終了します。1 つ目はそのまま動き続けます。",
+  "tray.alreadyRunning.title": "Remote Audio はすでに動いています",
+  "tray.alreadyRunning.body": "通知領域（時計の左）に Remote Audio のアイコンがあります。見当たらないときは「∧」を押すと、隠れているアイコンが出てきます。\n\n2 つ目は待受ポートを使えないため何もできません。この画面を閉じると 2 つ目は終了します。1 つ目はそのまま動き続けます。",
 
-  "tray.callout.here": "AudioRemote はここにいます",
+  "tray.callout.here": "Remote Audio はここにいます",
 
-  "tray.setup.doneTitle": "AudioRemote の初期設定",
-  "tray.setup.doneBody": "自動起動を登録し、LAN の受信を許可しました。共有 URL をクリップボードにコピーしたので、別のマシンのブラウザに貼り付けてください。\n\nこのウィンドウを閉じると、AudioRemote のアイコンを矢印で指します。以後はそのアイコンから開けます。",
-  "tray.setup.noFirewallBody": "自動起動を登録し、共有 URL をクリップボードにコピーしました。LAN の許可は行っていないため、他のマシンからまだ繋がらない場合があります。\n\nこのウィンドウを閉じると、AudioRemote のアイコンを矢印で指します。以後はそのアイコンから開けます。",
-  "tray.setup.noShareBody": "自動起動を登録しました。共有 URL はまだ作れません（LAN 公開が無効か、使えるトークンがありません）。\n\nこのウィンドウを閉じると、AudioRemote のアイコンを矢印で指します。以後はそのアイコンから開けます。",
-  "tray.setup.failedBody": "初期設定を完了できませんでした。ターミナルから audioremote --install-autostart を実行してください。\n\nAudioRemote 自体は動いています。このウィンドウを閉じると、そのアイコンを矢印で指します。",
-  "tray.setup.packagedBody": "共有 URL をクリップボードにコピーしました。別のマシンのブラウザに貼り付けてください。\n\nサインイン時の自動起動と LAN の受信許可は、ストア版では最初から有効です（自動起動はタスクマネージャーの「スタートアップ アプリ」で切り替えられます）。\n\nこのウィンドウを閉じると、AudioRemote のアイコンを矢印で指します。以後はそのアイコンから開けます。",
-  "tray.setup.packagedNoShareBody": "共有 URL はまだ作れません（LAN 公開が無効か、使えるトークンがありません）。\n\nサインイン時の自動起動と LAN の受信許可は、ストア版では最初から有効です。\n\nこのウィンドウを閉じると、AudioRemote のアイコンを矢印で指します。以後はそのアイコンから開けます。"
+  "tray.setup.doneTitle": "Remote Audio の初期設定",
+  "tray.setup.doneBody": "自動起動を登録し、LAN の受信を許可しました。接続用トークンを含む共有 URL をクリップボードにコピーしたので、別のマシンのブラウザに貼り付けてください。\n\nこのウィンドウを閉じると、Remote Audio のアイコンを矢印で指します。以後はそのアイコンから開けます。",
+  "tray.setup.noFirewallBody": "自動起動を登録し、接続用トークンを含む共有 URL をクリップボードにコピーしました。LAN の許可は行っていないため、他のマシンからまだ繋がらない場合があります。\n\nこのウィンドウを閉じると、Remote Audio のアイコンを矢印で指します。以後はそのアイコンから開けます。",
+  "tray.setup.noShareBody": "自動起動を登録しました。共有 URL はまだ作れません（LAN 公開が無効か、使えるトークンがありません）。\n\nこのウィンドウを閉じると、Remote Audio のアイコンを矢印で指します。以後はそのアイコンから開けます。",
+  "tray.setup.failedBody": "初期設定を完了できませんでした。ターミナルから RemoteAudio.exe --install-autostart を実行してください。\n\nRemote Audio 自体は動いています。このウィンドウを閉じると、そのアイコンを矢印で指します。",
+  "tray.setup.packagedBody": "接続用トークンを含む共有 URL をクリップボードにコピーしました。別のマシンのブラウザに貼り付けてください。\n\nサインイン時の自動起動と LAN の受信許可は、ストア版では最初から有効です（自動起動はタスクマネージャーの「スタートアップ アプリ」で切り替えられます）。\n\nこのウィンドウを閉じると、Remote Audio のアイコンを矢印で指します。以後はそのアイコンから開けます。",
+  "tray.setup.packagedNoShareBody": "共有 URL はまだ作れません（LAN 公開が無効か、使えるトークンがありません）。\n\nサインイン時の自動起動と LAN の受信許可は、ストア版では最初から有効です。\n\nこのウィンドウを閉じると、Remote Audio のアイコンを矢印で指します。以後はそのアイコンから開けます。",
+
+  "tray.shortcut.title": "Remote Audio のデスクトップショートカット",
+  "tray.shortcut.confirmBody": "このショートカットには、接続用トークンを含む共有 URL が保存されます。ファイルを開けばトークン入力なしで接続できます。\n\nデスクトップに作成しますか？同名の Remote Audio ショートカットがあれば更新します。",
+  "tray.shortcut.createdBody": "デスクトップに Remote Audio のショートカットを作成しました。接続用トークンを含むため、このファイルはパスワードと同じように扱ってください。",
+  "tray.shortcut.failedBody": "デスクトップにショートカットを作成できませんでした。デスクトップへの書き込み権限を確認してください。",
+  "tray.shortcut.noShareBody": "共有 URL を作れないため、ショートカットを作成できません。LAN 公開が無効か、使えるトークンがありません。",
+
+  "tray.share.title": "共有 URL",
+  "tray.share.copiedBody": "接続用トークンを含む共有 URL をクリップボードにコピーしました。別のマシンのブラウザに貼り付けてください。",
+  "tray.share.copyFailedBody": "共有 URL をクリップボードにコピーできませんでした。別のアプリがクリップボードを使用中の可能性があります。",
+  "tray.share.noShareBody": "共有 URL を作れません。LAN 公開が無効か、使えるトークンがありません。"
 }

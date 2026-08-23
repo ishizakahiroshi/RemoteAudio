@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p staging/win32-x64
-          cp target/release/audioremote.exe staging/win32-x64/audioremote.exe
+          cp target/release/RemoteAudio.exe staging/win32-x64/RemoteAudio.exe
       - uses: actions/upload-artifact@v4
         with:
           name: native-win32-x64
@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release
-          (cd artifacts/win32-x64 && zip -q "../../release/audioremote-win32-x64.zip" audioremote.exe)
+          (cd artifacts/win32-x64 && zip -q "../../release/audioremote-win32-x64.zip" RemoteAudio.exe)
           (cd release && sha256sum audioremote-* > SHA256SUMS.txt)
       - name: Create or update GitHub Release
         env:
@@ -255,7 +255,7 @@ jobs:
           # re-run would attempt the upload and fail on a duplicate version
           # instead of skipping cleanly.
           status=$(curl -sS \
-            -A "audioremote-release-workflow (+https://github.com/ishizakahiroshi/audioremote)" \
+            -A "audioremote-release-workflow (+https://github.com/ishizakahiroshi/RemoteAudio)" \
             -o /dev/null -w "%{http_code}" \
             "https://crates.io/api/v1/crates/audioremote/$version")
           echo "crates.io version probe: HTTP $status"

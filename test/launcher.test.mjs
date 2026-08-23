@@ -33,7 +33,7 @@ test("the platform map matches the published package names", () => {
   assert.deepEqual(Object.keys(PLATFORM_PACKAGES), ["win32-x64"]);
   assert.deepEqual(PLATFORM_PACKAGES["win32-x64"], [
     "@ishizakahiroshi/audioremote-win32-x64",
-    "audioremote.exe",
+    "RemoteAudio.exe",
   ]);
 });
 
@@ -52,7 +52,7 @@ test("a supported platform resolves to <package>/bin/<exe>", () => {
   });
   assert.equal(
     resolved,
-    join("C:", "node_modules", "@ishizakahiroshi", "audioremote-win32-x64", "bin", "audioremote.exe"),
+    join("C:", "node_modules", "@ishizakahiroshi", "audioremote-win32-x64", "bin", "RemoteAudio.exe"),
   );
 });
 

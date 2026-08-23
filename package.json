@@ -24,12 +24,12 @@
   "keywords": ["windows", "audio", "core-audio", "remote", "endpoint", "lan"],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ishizakahiroshi/audioremote.git"
+    "url": "git+https://github.com/ishizakahiroshi/RemoteAudio.git"
   },
   "bugs": {
-    "url": "https://github.com/ishizakahiroshi/audioremote/issues"
+    "url": "https://github.com/ishizakahiroshi/RemoteAudio/issues"
   },
-  "homepage": "https://github.com/ishizakahiroshi/audioremote#readme",
+  "homepage": "https://github.com/ishizakahiroshi/RemoteAudio#readme",
   "license": "MIT",
   "author": "Hiroshi Ishizaka (ishizakahiroshi)"
 }

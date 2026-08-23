@@ -1,10 +1,13 @@
-# audioremote
+# Remote Audio
 
 Switch your **Windows 11 host's default audio output device** from any browser on the LAN.
 No more walking back to the host to change the output from Nest Hub Max to wired earphones
 during a meeting — do it from a Hyper-V guest, WSL2, your phone, or another PC.
 
 > Status: **v0.1.0 released** (2026-07-31) on npm, crates.io and GitHub Releases.
+> The v0.2 resident UX is being prepared on `develop`; the Microsoft Store name
+> **Remote Audio** is reserved (Product ID `9PC6L3B67FV9`) and its first submission
+> is pending. Scoop is intentionally not a supported v0.2 channel.
 
 ---
 
@@ -13,7 +16,7 @@ during a meeting — do it from a Hyper-V guest, WSL2, your phone, or another PC
 ```
 Browser / phone / other PC
         ↓ HTTP(S)
-audioremote server (Rust, runs as your logon user on the Windows 11 host)
+Remote Audio server (Rust, runs as your logon user on the Windows 11 host)
         ↓ windows crate (COM)
 Windows Core Audio (IMMDeviceEnumerator / IPolicyConfig)
         ↓
@@ -21,14 +24,14 @@ Physical devices (Nest Hub Max / wired earphones / headphones / …)
 ```
 
 - The server runs in **your physical console session** (not as a SYSTEM service, and not inside an RDP session — audio endpoints belong to the interactive user's physical session; from an RDP session you only see the virtual "Remote Audio" endpoint).
-- Default bind is **`0.0.0.0:17650`** — exposed to the LAN out of the box, because controlling the host from another machine is the whole point. Non-loopback clients require a bearer token; loopback (the host itself) is bypassed. Lock it down to `127.0.0.1` with `audioremote setup` if you don't need remote control.
+- Default bind is **`0.0.0.0:17650`** — exposed to the LAN out of the box, because controlling the host from another machine is the whole point. Non-loopback clients require a bearer token; loopback (the host itself) is bypassed. Lock it down to `127.0.0.1` with `RemoteAudio setup` if you don't need remote control.
 - Console / Multimedia / Communications default endpoints are always **switched together** (otherwise meeting apps still route to the old device via the Communications default).
 - The Web UI controls the **master volume and mute state** of the current default Multimedia output. Volume is per output device, so it follows the selected endpoint after a device switch.
 - Switching is done by **device ID**, not display name (display names change on reconnect).
 
 ## Supported platforms
 
-| Side | Support (v0.1) |
+| Side | Support |
 |---|---|
 | Server (host) | **Windows 11 only.** Windows 10 is not officially supported. macOS / Linux are out of scope. |
 | Client (browser) | Any modern browser on any OS. The built-in Web UI is served by the host binary. |
@@ -48,21 +51,26 @@ The platform-specific Rust binary ships via `optionalDependencies` (esbuild / Bi
 so SmartScreen warnings are avoided.
 
 **GitHub Releases** (Node-free): download `audioremote-win32-x64.zip` from the
-[latest release](https://github.com/ishizakahiroshi/audioremote/releases/latest), verify it against
-the published `SHA256SUMS.txt`, and run the extracted `audioremote.exe`.
+[latest release](https://github.com/ishizakahiroshi/RemoteAudio/releases/latest), verify it against
+the published `SHA256SUMS.txt`, and run the extracted `RemoteAudio.exe`.
 
-**winget**:
+The package and crate namespace remains `audioremote` for compatibility; the
+native executable distributed by v0.2 and later is `RemoteAudio.exe`.
+
+**winget** (v0.2; available after the first manifest submission):
 
 ```powershell
 winget install ishizakahiroshi.AudioRemote
 ```
 
-**Scoop**:
+**Microsoft Store**: **Remote Audio** is reserved and the MSIX identity is now
+`ishizakahiroshi.RemoteAudio`. The first submission is still pending. The Store
+edition will be installed and updated by Microsoft, carries Microsoft's signature,
+and targets Windows 11 (build 22000 or later); it is not a portable download.
 
-```powershell
-scoop bucket add ishizakahiroshi https://github.com/ishizakahiroshi/scoop-bucket
-scoop install ishizakahiroshi/audioremote
-```
+**Scoop** is not a supported v0.2 install path. The manifest under
+`packaging/scoop/` is retained as a learning/reference artifact; use the Store or
+winget for supported package-manager installs.
 
 **crates.io** (builds from source, needs Rust 1.85+):
 
@@ -70,11 +78,11 @@ scoop install ishizakahiroshi/audioremote
 cargo install audioremote
 ```
 
-npm, GitHub Releases and crates.io have been live since v0.1.0; winget and Scoop arrive with v0.2.
-Every channel serves the same executable — winget and Scoop unpack the very zip attached to the
-GitHub release and check it against the same `SHA256SUMS.txt`, so there is no separate build to
-distrust. The binary is **unsigned** — see Security posture for why the npm channel is the
-recommended path.
+npm, GitHub Releases and crates.io have been live since v0.1.0. The winget manifest is prepared
+for v0.2, but its first external publication is still pending. Once available, the supported
+package-manager path will unpack the same zip attached to the GitHub release and check it against
+the same `SHA256SUMS.txt`, so there is no separate build to distrust. The binary is **unsigned**
+— see Security posture for the warning and verification details.
 
 ## Getting started, end to end
 
@@ -84,11 +92,10 @@ another Windows machine all work the same way.
 **On the host, once:**
 
 1. Install it (see above).
-2. Run `audioremote`. It prints the LAN URL with a token embedded and opens your browser.
-3. Register autostart: `audioremote --install-autostart`.
-4. Get the shareable URL: `audioremote share`. It prints one line per network interface — pick the
-   one on the LAN your guest is actually on. A Hyper-V host lists its vEthernet adapters too, and
-   those won't be reachable from the guest.
+2. Run `RemoteAudio.exe`. It stays in the notification area and shows a welcome window.
+3. Press **Finish setting up** once. It registers autostart, asks once for the LAN firewall
+   permission, and copies a share URL containing a connection token. The same actions are
+   available from the tray later; `RemoteAudio share` prints all share URLs explicitly.
 
 **On the guest, once:**
 
@@ -99,41 +106,45 @@ another Windows machine all work the same way.
 **Every day:** open the bookmark and press the device you want. Console, Multimedia, and
 Communications switch together, so nothing is left routed to the old endpoint.
 
-v0.2 folds host steps 3 and 4 into a single click from the tray, and drops the console window
-entirely — see Roadmap.
+v0.2 folds host steps 3 and 4 into a single click from the tray, drops the console window
+entirely, and keeps the server alive behind the tray icon — see Roadmap.
 
 ## Build from source (developer)
 
 ```powershell
 # On Windows 11 with Rust 1.85 or newer (see `rust-version` in Cargo.toml)
 cargo build            # dev build
-cargo run              # starts the local HTTP server
+cargo run              # starts the resident supervisor
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all
 npm test               # npm launcher (bin/audioremote.js)
 ```
 
-`cargo build --release` produces `target/release/audioremote.exe`.
+`cargo build --release` produces `target/release/RemoteAudio.exe`.
 
 ## Command line
 
 ```text
-audioremote                     start the HTTP server (default)
-audioremote serve --no-open     start without opening a browser (used by autostart)
-audioremote setup               interactive config wizard (bind / token / sort / port)
-audioremote list                list playback endpoints + current defaults
-audioremote set <id>            switch the default output device
-audioremote share               print the LAN URLs with the token in full
-audioremote token list          list tokens (masked)
-audioremote token list --show   list tokens in full
-audioremote token add <name>    issue a new named token
-audioremote token revoke <name|token>
+RemoteAudio                     run the resident supervisor (default)
+RemoteAudio serve               run one server directly and open the browser
+RemoteAudio serve --no-open     run one server directly without opening a browser
+RemoteAudio setup               interactive config wizard (bind / token / sort / port / recovery)
+RemoteAudio list                list playback endpoints + current defaults
+RemoteAudio set <id>            switch the default output device
+RemoteAudio share               print the LAN URLs with the token in full
+RemoteAudio token list          list tokens (masked)
+RemoteAudio token list --show   list tokens in full
+RemoteAudio token add <name>    issue a new named token
+RemoteAudio token revoke <name|token>
 ```
 
 `token add` and `token revoke` take effect on a **running** server within a
 second — no restart. Everything else in `config.toml` (bind, port,
-`allowed_networks`, `device_sort`) is read once at startup.
+`allowed_networks`, `device_sort`, and resident crash recovery) is read once at
+startup. Resident mode retries an unexpectedly stopped server with increasing
+waits, then stops after repeated failures; run `RemoteAudio setup` to turn that
+recovery off.
 
 ## Volume and mute
 
@@ -161,13 +172,13 @@ bearer-token, Host-header, allowlist and same-origin checks all apply.
 Register the current executable in the per-user HKCU Run key:
 
 ```powershell
-.\target\release\audioremote.exe --install-autostart
+.\target\release\RemoteAudio.exe --install-autostart
 ```
 
-Remove only AudioRemote's own Run value with:
+Remove only Remote Audio's own Run value with:
 
 ```powershell
-.\target\release\audioremote.exe --uninstall-autostart
+.\target\release\RemoteAudio.exe --uninstall-autostart
 ```
 
 The registered command is the quoted absolute exe path followed by `supervise`,
@@ -188,7 +199,7 @@ If the exe is moved, run the install command again.
   master volume/mute, and minimal per-user autostart (released 2026-07-31).
 - **v0.2** — Host-side resident UX: tray icon, no console window, full autostart
   (firewall rule, restart and crash recovery), remote restart, plus winget /
-  Scoop / Microsoft Store distribution. **Nothing new to install on the guest.**
+  Microsoft Store distribution. **Nothing new to install on the guest.**
 - **v0.3+** — Automatic HTTPS provisioning, and a PWA entry point on top of it
   (a PWA needs a secure context, which plain `http://` on a LAN address is not).
   Per-app volume (the Windows volume mixer, from the guest) also sits here: it
@@ -199,7 +210,7 @@ Guests stay on the browser. Open the share URL once and the token is kept in
 app is a non-goal (see below). The core architecture (host-resident server + HTTP
 API) does not change between versions.
 
-## Configuration (v0.1)
+## Configuration
 
 Config lives at `%APPDATA%\audioremote\config.toml` (created automatically on first run). See the UX mockup for the concrete layout; the shape is roughly:
 
@@ -213,7 +224,7 @@ allowed_networks = []   # optional allowlist: ["203.0.113.0/24", "198.51.100.5"]
 require_token = true
 
 # One or more named bearer tokens (first run generates a "default").
-# Manage with `audioremote token add|revoke|list`.
+# Manage with `RemoteAudio token add|revoke|list`.
 [[auth.tokens]]
 name = "default"
 token = "ar_live_..."   # auto-generated on first run
@@ -221,6 +232,9 @@ revoked = false
 
 [audio]
 device_sort = "state"   # "state" | "name" | "recent"
+
+[tray]
+auto_restart = true       # resident mode retries a crashed server; setup can turn it off
 ```
 
 Notes on hand-editing:
@@ -234,22 +248,25 @@ Notes on hand-editing:
   server ignores my LAN".
 - Console / Multimedia / Communications are **always** switched together; there
   is no setting for it (see Non-goals).
+- `tray.auto_restart` applies only to the resident supervisor. Direct
+  `RemoteAudio serve` runs one server and never starts a replacement child.
 
 Device usage history (for `device_sort = "recent"`) is stored separately in `%APPDATA%\audioremote\history.toml` so editing config by hand does not clobber it.
 
 ## Security posture
 
-- **Exposed to the LAN by default** (`bind = "0.0.0.0"`). The Windows Firewall prompt on first run is the outer gate; the bearer token is the inner gate. Lock down with `audioremote setup` (bind `127.0.0.1`) if you don't want remote control.
-- Bearer token authentication required for every **non-loopback** client on all API endpoints; loopback (the host itself) is bypassed. Tokens are named and individually revocable — `audioremote token add|revoke|list`.
+- **Exposed to the LAN by default** (`bind = "0.0.0.0"`). The Windows Firewall prompt on first run is the outer gate; the bearer token is the inner gate. Lock down with `RemoteAudio setup` (bind `127.0.0.1`) if you don't want remote control.
+- Bearer token authentication required for every **non-loopback** client on all API endpoints; loopback (the host itself) is bypassed. Tokens are named and individually revocable — `RemoteAudio token add|revoke|list`.
 - **Revocation is immediate.** The running server re-reads the token set when `config.toml` changes (checked at most once a second), so `token revoke` stops a leaked token without a restart. Writes are atomic, so the server never reads a half-saved file.
 - **DNS-rebinding guard**: a request is accepted only when its `Host` header matches loopback or a current LAN IP, so a malicious page whose DNS re-resolves to `127.0.0.1` cannot reach the API. Applies to the Web UI assets as well, not just the API.
 - Optional **allowlist** (`allowed_networks`) refuses non-loopback source IPs outside the listed networks before token checking.
 - **Cross-origin writes are refused.** Because loopback skips the token, any web page could otherwise `fetch()` a device switch at `127.0.0.1` while you browse. State-changing requests must carry `Sec-Fetch-Site: same-origin`/`none` and, when an `Origin` is present, an authority matching the request's `Host`. Non-browser clients (curl, scripts) send neither header and are unaffected. No CORS handler is installed, so cross-origin **reads** stay blocked by the browser.
 - **Framing is refused** (`Content-Security-Policy: frame-ancestors 'none'` + `X-Frame-Options: DENY`), so the token-free loopback UI cannot be used for clickjacking. Every response also carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
-- **Tokens are masked in console output.** The startup banner prints full share URLs only on the very first run; afterwards the token is masked and `audioremote share` prints it on demand. `token list` masks by default (`--show` to reveal). This keeps live credentials out of scrollback, screen shares and redirected logs — the autostart entry re-prints the banner at every logon.
+- **Tokens are masked in console output.** Resident mode does not print share URLs. Direct `serve` masks existing tokens on startup; only a newly generated first-run token is shown there, while the explicit `RemoteAudio share` command prints full URLs on demand. `token list` masks by default (`--show` to reveal). This keeps live credentials out of scrollback, screen shares and redirected logs.
+- The resident welcome screen does **not** copy a live share URL silently at launch. It explains that the URL contains a connection token and copies it only after the user presses the setup button or the tray copy action; the completion dialog says what was copied.
+- The tray can also create an Internet Shortcut (`.url`) on the Desktop for a selected LAN address. This is an explicit, confirmed action because the file stores the live connection token; treat the shortcut like a password.
 - When bound to LAN, the guest UI shows a **"LAN exposed"** badge as a reminder.
 - No unsigned exe direct-download flow is recommended for end users; use the npm channel to avoid SmartScreen prompts.
-- The v0.1 autostart command does not modify RDP settings, audio drivers, or Windows Firewall rules.
 
 ### Plain HTTP, and what that costs
 
@@ -264,7 +281,7 @@ revoke it. Accordingly:
 - Narrow the reachable set with `allowed_networks`, and issue **one token per
   device** so a single leak can be revoked without disturbing the others.
 - If you need transport encryption, put a TLS reverse proxy in front and take the
-  server off the LAN entirely: `audioremote setup` → bind `127.0.0.1`, then have
+  server off the LAN entirely: `RemoteAudio setup` → bind `127.0.0.1`, then have
   the proxy (Caddy, nginx, IIS ARR) terminate TLS on the same machine and forward
   to `http://127.0.0.1:17650`. Send the **upstream** authority as `Host` —
   `proxy_set_header Host 127.0.0.1:17650;` in nginx, `header_up Host {upstream_hostport}`
@@ -275,23 +292,23 @@ revoke it. Accordingly:
   match as well; a first-class "trusted hostname" setting remains deferred and is
   not scheduled for a specific milestone.
 - Automatic HTTPS provisioning (mkcert, self-signed helpers) stays out of scope
-  for v0.1; see Non-goals.
+  see Non-goals.
 
-## Non-goals (v0.1)
+## Non-goals and deferred work
 
-- Tray icon (host side; planned for v0.2).
 - Global hotkeys. **Dropped for good** — this product is operated from the guest,
   so a host-side hotkey contradicts the premise.
 - A native guest client (Tauri / iOS / Android). **Dropped for good** — guests
   already work with nothing but a browser, so shipping an executable would only
   add an install step and give up phone / Linux / any-device reach.
 - Per-role (Console / Multimedia / Communications) individual switching UI.
+- Per-app volume control. Deferred to v0.3+ because it only earns its keep when
+  two applications are playing at once; v0.2 keeps the master-volume control.
 - macOS / Linux server implementations.
 - Windows 10 official support.
-- Automatic HTTPS provisioning, mkcert integration, self-signed helpers.
-- winget / Scoop submission (planned for v0.2).
-- Code signing (undecided; evaluated in v0.2 alongside the Microsoft Store work,
-  which needs no certificate of its own because the Store re-signs the package).
+- Automatic HTTPS provisioning, mkcert integration, and self-signed helpers.
+- Code signing for direct-download executables. The Microsoft Store re-signs its
+  package; direct downloads remain unsigned and are accompanied by SHA256 checksums.
 
 ## Project layout
 
