@@ -10,7 +10,7 @@
 //! it — see [`packaged`].
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub const RUN_KEY_PATH: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 pub const VALUE_NAME: &str = "AudioRemote";
@@ -301,10 +301,23 @@ fn netsh(args: &[&str]) -> io::Result<std::process::ExitStatus> {
     // CREATE_NO_WINDOW: without it a console flashes on screen for each call,
     // which is the one thing the resident build is trying to stop doing.
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    std::process::Command::new("netsh")
+    std::process::Command::new(system_netsh())
         .args(args)
         .creation_flags(CREATE_NO_WINDOW)
         .status()
+}
+
+/// Absolute path to `netsh.exe`, resolved from `%SystemRoot%` rather than the
+/// executable search path.
+///
+/// The elevated helper (`elevate_self`) inherits the caller's working
+/// directory, and a bare `"netsh"` would be looked up there first — handing a
+/// planted executable an administrator token. Naming System32 outright leaves
+/// nothing to plant.
+#[cfg(windows)]
+fn system_netsh() -> PathBuf {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    PathBuf::from(root).join(r"System32\netsh.exe")
 }
 
 /// Re-run this same exe elevated with `args`, and wait for it to finish.

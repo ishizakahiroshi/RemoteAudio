@@ -134,8 +134,21 @@ impl AudioGate {
         let admission = self.admission.clone();
 
         let work = async move {
-            let _permit = admission.acquire().await.map_err(|_| GateError::Failed)?;
+            // `acquire_owned`, not `acquire`: the permit has to be `'static`
+            // so it can move onto the blocking thread below.
+            let permit = admission
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|_| GateError::Failed)?;
             let handle = tokio::task::spawn_blocking(move || {
+                // The permit moves in here, onto the blocking thread, and is
+                // only released when this closure finishes. Held by the async
+                // layer instead, a timeout — or a client disconnect dropping
+                // the future — would hand it back while the work it admitted
+                // was still queued behind a wedged COM call: every retry would
+                // add one more parked thread for the duration of the wedge.
+                let _admitted = permit;
                 // Locked here, on the blocking thread, rather than by the async
                 // caller. If the client disconnects, the awaiting future is
                 // dropped — and a guard held out there would be released while

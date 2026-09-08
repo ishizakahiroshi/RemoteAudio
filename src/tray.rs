@@ -16,6 +16,7 @@
 use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{GlobalFree, HANDLE, HWND, LPARAM, LRESULT, POINT, WPARAM};
@@ -34,11 +35,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
     DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetSystemMetrics,
     GetWindowLongPtrW, KillTimer, PostMessageW, PostQuitMessage, RegisterClassW,
-    SetForegroundWindow, SetTimer, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
-    GWLP_USERDATA, HICON, HMENU, MENU_ITEM_FLAGS, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING,
-    MSG, SM_CXSMICON, SM_CYSMICON, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE,
-    WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL,
-    WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
+    RegisterWindowMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, TrackPopupMenu,
+    TranslateMessage, GWLP_USERDATA, HICON, HMENU, MENU_ITEM_FLAGS, MF_GRAYED, MF_POPUP,
+    MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, SM_CYSMICON, TPM_LEFTALIGN, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DESTROY,
+    WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 
 use crate::assets;
@@ -51,6 +52,12 @@ use crate::welcome;
 
 /// Our callback message. Anything in the `WM_APP` range is ours to define.
 const WM_TRAY: u32 = WM_APP + 1;
+
+/// `RegisterWindowMessageW("TaskbarCreated")`, resolved once in [`run`]. The
+/// shell broadcasts it whenever Explorer restarts — and every notification-area
+/// icon dies with that restart. Without listening for it, killing and restarting
+/// Explorer permanently removes the app's only UI while the process lives on.
+static WM_TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 
 /// Identifies our one icon within this window. Shared with [`crate::callout`],
 /// which has to name the same icon to ask the shell where it ended up.
@@ -91,6 +98,13 @@ pub fn run(handle: supervisor::Handle) -> std::io::Result<()> {
         if RegisterClassW(&class) == 0 {
             return Err(std::io::Error::last_os_error());
         }
+
+        // Before the window exists, so no message can be dispatched before the
+        // id it is compared against is known.
+        WM_TASKBAR_CREATED.store(
+            RegisterWindowMessageW(w!("TaskbarCreated")),
+            Ordering::Relaxed,
+        );
 
         // Never shown. It exists to receive the icon's callbacks — but it is a
         // real top-level window rather than a message-only one, because
@@ -650,6 +664,18 @@ fn is_audio_remote_shortcut(path: &Path) -> bool {
 
 /// Everything the window procedure has to do, once the state pointer is known.
 unsafe fn handle(tray: &mut Tray, msg: u32, lparam: LPARAM) {
+    let taskbar_created = WM_TASKBAR_CREATED.load(Ordering::Relaxed);
+    if taskbar_created != 0 && msg == taskbar_created {
+        // Explorer is back and took the icon with it. Re-add it — this is the
+        // one message where NIM_ADD after a successful add is expected rather
+        // than an error. The fresh icon carries no tooltip, so refresh right
+        // away instead of waiting out the timer tick.
+        if let Err(e) = tray.add_icon() {
+            eprintln!("[tray] re-adding the icon after a shell restart failed: {e}");
+        }
+        tray.refresh_tooltip();
+        return;
+    }
     match msg {
         WM_TRAY => match lparam.0 as u32 {
             WM_RBUTTONUP | WM_CONTEXTMENU => tray.show_menu(),

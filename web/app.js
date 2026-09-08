@@ -24,6 +24,7 @@ let state = {
   pendingId: null,
   pollTimer: null,
   needsToken: false,
+  about_build: null,    // build_id the `about` payload was fetched for
   lang: null,           // active language code, e.g. "ja"
   strings: {},          // key -> translated string
   langs: [],            // available packs [{code, name}]
@@ -155,8 +156,23 @@ async function api(path, opts = {}) {
       state.token = "";
       localStorage.removeItem(TOKEN_KEY);
     }
+    // Preserve what the guest has typed so far: re-rendering below rebuilds
+    // the entry form from scratch.
+    const typed = document.getElementById("tokenInput")?.value || "";
+    const entering = !state.needsToken;
     state.needsToken = true;
-    render();
+    // Polling has to stop here and stay stopped: every further cycle would
+    // render() over the token box the guest is typing into. stopPolling is
+    // idempotent, and the parallel requests inside one poll cycle can all
+    // 401 in the same instant — hence the `entering` guard on render.
+    stopPolling();
+    if (entering) {
+      render();
+      if (typed) {
+        const inp = document.getElementById("tokenInput");
+        if (inp) inp.value = typed;
+      }
+    }
     throw new Error("unauthorized");
   }
   if (!res.ok) {
@@ -195,7 +211,10 @@ async function pollOnce() {
     state.needsToken = false;
     if (state.pendingId) {
       const d = state.devices.find((x) => x.id === state.pendingId);
-      if (d && d.is_default_multimedia) state.pendingId = null;
+      // Clear when the switch landed — or when it provably cannot land
+      // anymore: the device vanished from the list or went inactive mid-switch.
+      // Without those two, one unplugged headset locks the picker forever.
+      if (!d || d.state !== "active" || d.is_default_multimedia) state.pendingId = null;
     }
     // Skip the full re-render while the user is interacting with something that
     // render() would destroy: a mid-drag volume slider (implicit pointer capture
@@ -265,6 +284,9 @@ function clearToken() {
   state.devices = null;
   state.volume = null;
   state.showSettings = false;
+  state.about = null;
+  state.about_build = null;
+  state.pendingId = null;
   state.needsToken = true;
   stopPolling();
   render();
@@ -352,7 +374,9 @@ async function refreshVolumeAfterFailure(revision) {
     volumeControl.draft = null;
     volumeControl.dirty.clear();
     updateVolumeDom(volume);
-    render();
+    // render() rebuilds open sheets (scroll position and all); the DOM patch
+    // above is everything that is needed while one is up.
+    if (!sheetOpen()) render();
   } catch (e) {
     if (e.message !== "unauthorized") console.warn("volume refresh failed:", e);
   }
@@ -564,9 +588,12 @@ function renderSharePanel(entries) {
       h("button", {
         class: "btn small",
         onclick: (evt) => {
+          // Capture the button synchronously: currentTarget is nulled once
+          // event dispatch ends, and the promise callback below runs long
+          // after that.
+          const btn = evt.currentTarget;
           navigator.clipboard.writeText(url).then(
             () => {
-              const btn = evt.currentTarget;
               const orig = btn.textContent;
               // Green flash + bounce on the button, plus a soft highlight on the
               // URL input so the user sees "this is what got copied".
@@ -743,9 +770,14 @@ function renderSettingsSheet() {
 }
 
 async function loadAbout() {
-  if (state.about) return;
+  // Cache per host build: after a restart or a staged update the previous
+  // About content (versions, OSS list) is wrong, not merely stale-looking.
+  // status.build_id changes across both, so it is the invalidation key.
+  const build = state.status ? state.status.build_id : null;
+  if (state.about && state.about_build === build) return;
   try {
     state.about = await api("/api/about");
+    state.about_build = build;
     if (state.showAbout) render();
   } catch (e) {
     console.warn("about fetch failed:", e);

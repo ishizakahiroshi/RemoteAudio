@@ -169,6 +169,9 @@ fn embed_windows_resource() {
         "Copyright (c) 2026 Hiroshi Ishizaka (ishizakahiroshi)",
     );
     if let Err(e) = res.compile() {
-        println!("cargo:warning=failed to embed Windows resource: {e}");
+        // Same reasoning as the manifest check above: quietly shipping an exe
+        // without its resources trades a loud build failure now for a silent
+        // "this program has stopped responding to everything" later.
+        panic!("failed to embed Windows resources: {e}");
     }
 }

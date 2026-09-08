@@ -355,7 +355,18 @@ pub fn save(path: &Path, config: &Config) -> std::io::Result<()> {
         .unwrap_or_else(|| "config.toml".to_string());
     let tmp = path.with_file_name(format!("{file_name}.{}.tmp", std::process::id()));
 
-    if let Err(e) = fs::write(&tmp, text) {
+    let written = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        // Flush to the disk *before* the rename publishes the new contents.
+        // The rename alone is atomic but not durable: a power cut in the wrong
+        // instant could leave a zero-length config.toml behind — valid TOML,
+        // zero tokens, every LAN client locked out on next boot. This is the
+        // same failure `load_auth` refuses at its end, kept from ever forming.
+        file.sync_all()
+    })();
+    if let Err(e) = written {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
@@ -389,6 +400,17 @@ pub fn load_auth(path: &Path) -> std::io::Result<AuthConfig> {
                 revoked: false,
             });
         }
+    }
+    // A file that demands tokens but carries none active must not be honored:
+    // installing it would 401 every non-loopback client until someone repairs
+    // the file by hand. Refusing keeps the server on its last known-good set
+    // (see `crate::auth`). Startup never reaches this because `load_or_init`
+    // mints a replacement before the first `load_auth` ever runs.
+    if config.auth.require_token && config.auth.active_count() == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "[auth] requires a token but none are active; refusing to lock every client out",
+        ));
     }
     Ok(config.auth)
 }
@@ -810,6 +832,36 @@ mod tests {
         assert!(auth.matches(&added));
         assert!(!auth.matches(&original));
         assert!(auth.require_token);
+    }
+
+    #[test]
+    fn load_auth_refuses_a_required_but_empty_active_set() {
+        let scratch = Scratch::new("lockout");
+        let path = scratch.config();
+        // A hand-truncated or half-restored file: valid TOML, zero tokens. The
+        // running server must reject it (and keep its last good set) rather
+        // than 401 every LAN client until the file is repaired.
+        fs::write(&path, "[auth]\nrequire_token = true\n").expect("seed empty auth");
+        assert!(
+            load_auth(&path).is_err(),
+            "required-but-empty must be refused"
+        );
+
+        // The same shape is fine once tokens are not required.
+        fs::write(&path, "[auth]\nrequire_token = false\n").expect("reseed open auth");
+        assert!(load_auth(&path).is_ok());
+
+        // And a revoked-only token set counts as empty.
+        fs::write(
+            &path,
+            "[auth]\nrequire_token = true\n\n[[auth.tokens]]\nname = \"old\"\n\
+             token = \"ar_live_dead\"\nrevoked = true\n",
+        )
+        .expect("reseed revoked-only");
+        assert!(
+            load_auth(&path).is_err(),
+            "all-revoked is still zero active"
+        );
     }
 
     #[test]

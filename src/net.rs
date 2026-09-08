@@ -34,7 +34,13 @@ pub fn list_lan_ipv4() -> Vec<(String, std::net::Ipv4Addr)> {
                 _ => None,
             })
             .collect(),
-        Err(_) => Vec::new(),
+        // Returning empty stays correct — but it must not be silent. The Host
+        // allowlist is built from this list, so an enumeration failure here is
+        // how "every request from the LAN suddenly 403s" happens invisibly.
+        Err(e) => {
+            eprintln!("[warn] cannot enumerate network interfaces ({e}); no LAN addresses found");
+            Vec::new()
+        }
     }
 }
 

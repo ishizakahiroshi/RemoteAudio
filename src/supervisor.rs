@@ -305,6 +305,15 @@ impl Monitor {
         true
     }
 
+    /// Throw away everything still queued from a child that is already gone.
+    ///
+    /// Queued requests belong to the generation that sent them. `Stop` and
+    /// `Start` both cross a generation boundary, so anything left in the
+    /// channel describes a child that no longer exists.
+    fn discard_child_requests(&mut self) {
+        for _ in self.child_rx.try_iter() {}
+    }
+
     /// Returns `false` when the monitor should exit.
     fn handle(&mut self, request: Request) -> bool {
         match request {
@@ -321,11 +330,16 @@ impl Monitor {
             }
             Request::Stop => {
                 self.kill_child();
+                // Requests the dying child queued are stale by definition —
+                // replaying a leftover Restart would bring the server back up
+                // one poll after the user stopped it.
+                self.discard_child_requests();
                 self.retry_at = None;
                 self.set_state(SupervisorState::Stopped);
             }
             Request::Start => {
                 if self.child.is_none() {
+                    self.discard_child_requests();
                     self.reset_budget();
                     // Also staged here, not just on `Restart`: this is the way
                     // out of `Failed`. A build that crashed through the whole
