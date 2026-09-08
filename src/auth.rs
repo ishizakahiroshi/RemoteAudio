@@ -164,7 +164,7 @@ impl AuthState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{add_named_token, load_or_init, revoke_token, save};
+    use crate::config::{add_named_token, load_or_init, revoke_token_value, save};
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -212,8 +212,8 @@ mod tests {
 
         // Stand in for `RemoteAudio token add phone && RemoteAudio token revoke default`
         // running in another console.
-        let added = add_named_token(&mut cfg, "phone");
-        revoke_token(&mut cfg, &original);
+        let added = add_named_token(&mut cfg, "phone").expect("add phone token");
+        revoke_token_value(&mut cfg, &original);
         save(&path, &cfg).expect("save");
 
         assert!(
@@ -282,8 +282,8 @@ mod tests {
             AuthState::with_recheck(path.clone(), cfg.auth.clone(), Duration::from_secs(3600));
         assert!(auth.matches(&original));
 
-        revoke_token(&mut cfg, &original);
-        add_named_token(&mut cfg, "next");
+        revoke_token_value(&mut cfg, &original);
+        add_named_token(&mut cfg, "next").expect("add next token");
         save(&path, &cfg).expect("save");
 
         assert!(

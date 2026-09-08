@@ -744,7 +744,8 @@ fn run_setup() {
         for t in &mut cfg.auth.tokens {
             t.revoked = true;
         }
-        let token = config::add_named_token(&mut cfg, "default");
+        let token = config::add_named_token(&mut cfg, "default")
+            .expect("the built-in default token name is valid");
         println!("   -> new token: {token}");
     }
     println!();
@@ -843,8 +844,8 @@ fn run_list() {
                     i,
                     d.state.as_str(),
                     def,
-                    truncate(&d.name, 40),
-                    d.id
+                    truncate(&sanitize_terminal_text(&d.name), 40),
+                    sanitize_terminal_text(&d.id)
                 );
             }
         }
@@ -881,6 +882,15 @@ fn truncate(s: &str, n: usize) -> String {
         out.push('…');
         out
     }
+}
+
+/// Keep device names, token labels and child output from changing terminal
+/// state or injecting additional lines. The visible replacement also makes
+/// hand-edited control characters obvious instead of silently joining words.
+pub(crate) fn sanitize_terminal_text(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { '�' } else { c })
+        .collect()
 }
 
 #[cfg(windows)]
@@ -931,10 +941,10 @@ fn run_token(args: &[String]) {
                 };
                 println!(
                     "{:<20} {:<8} {:<12} {}",
-                    truncate(&t.name, 20),
+                    truncate(&sanitize_terminal_text(&t.name), 20),
                     st,
                     created,
-                    shown
+                    sanitize_terminal_text(&shown)
                 );
             }
             if !reveal {
@@ -947,30 +957,69 @@ fn run_token(args: &[String]) {
                 eprintln!("usage: RemoteAudio token add <name>");
                 std::process::exit(2);
             };
-            let token = config::add_named_token(&mut cfg, name);
+            let token = match config::add_named_token(&mut cfg, name) {
+                Ok(token) => token,
+                Err(e) => {
+                    eprintln!("cannot add token: {e}");
+                    std::process::exit(2);
+                }
+            };
             if let Err(e) = config::save(&path, &cfg) {
                 eprintln!("failed to save config: {e}");
                 std::process::exit(1);
             }
-            println!("added token '{name}':");
+            println!("added token '{}':", sanitize_terminal_text(name.trim()));
             println!("  {token}");
             println!();
             println!("A running server picks this up within a second - no restart needed.");
         }
         "revoke" => {
-            let Some(target) = args.get(3) else {
-                eprintln!("usage: RemoteAudio token revoke <name|token>");
+            let Some(raw_target) = args.get(3) else {
+                eprintln!("usage: RemoteAudio token revoke <name> | --by-value <token>");
                 std::process::exit(2);
             };
-            let n = config::revoke_token(&mut cfg, target);
+            let (target, by_value) = if raw_target == "--by-value" {
+                let Some(value) = args.get(4) else {
+                    eprintln!("usage: RemoteAudio token revoke --by-value <token>");
+                    std::process::exit(2);
+                };
+                (value.as_str(), true)
+            } else {
+                if raw_target.starts_with("ar_live_") {
+                    eprintln!(
+                        "token values require the explicit form: RemoteAudio token revoke --by-value <token>"
+                    );
+                    std::process::exit(2);
+                }
+                (raw_target.trim(), false)
+            };
+            if !by_value && target.is_empty() {
+                eprintln!("token name must not be empty");
+                std::process::exit(2);
+            }
+            let n = if by_value {
+                config::revoke_token_value(&mut cfg, target)
+            } else {
+                config::revoke_named_token(&mut cfg, target)
+            };
             if n == 0 {
-                eprintln!("no active token matched '{target}'");
+                if by_value {
+                    eprintln!("no active token matched the supplied value");
+                } else {
+                    eprintln!(
+                        "no active token matched name '{}'",
+                        sanitize_terminal_text(target)
+                    );
+                }
                 std::process::exit(1);
             }
             // Never leave the server with zero usable tokens: reissue if the
             // last active token was just revoked.
             let reissued = if !cfg.auth.tokens.iter().any(|t| !t.revoked) {
-                Some(config::add_named_token(&mut cfg, "default"))
+                Some(
+                    config::add_named_token(&mut cfg, "default")
+                        .expect("the built-in default token name is valid"),
+                )
             } else {
                 None
             };
@@ -988,7 +1037,11 @@ fn run_token(args: &[String]) {
                     );
                     println!("  {token}");
                 }
-                None => println!("revoked {n} token(s) matching '{target}'"),
+                None if by_value => println!("revoked {n} token(s) by explicit value"),
+                None => println!(
+                    "revoked {n} token(s) named '{}'",
+                    sanitize_terminal_text(target)
+                ),
             }
             println!();
             println!("A running server stops accepting them within a second - no restart needed.");
@@ -996,7 +1049,7 @@ fn run_token(args: &[String]) {
         other => {
             eprintln!("unknown token subcommand: {other}");
             eprintln!(
-                "usage: RemoteAudio token [list [--show] | add <name> | revoke <name|token>]"
+                "usage: RemoteAudio token [list [--show] | add <name> | revoke <name> | revoke --by-value <token>]"
             );
             std::process::exit(2);
         }
@@ -1064,7 +1117,10 @@ fn run_token(_: &[String]) {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::{mask_share_url, mask_token, prints_to_a_terminal, truncate, DEFAULT_COMMAND};
+    use super::{
+        mask_share_url, mask_token, prints_to_a_terminal, sanitize_terminal_text, truncate,
+        DEFAULT_COMMAND,
+    };
 
     #[test]
     fn a_bare_launch_starts_the_resident_supervisor() {
@@ -1140,5 +1196,13 @@ mod tests {
         assert_eq!(truncate("スピーカー", 40), "スピーカー");
         assert_eq!(truncate("スピーカー", 3), "スピ…");
         assert_eq!(truncate("abc", 3), "abc");
+    }
+
+    #[test]
+    fn terminal_control_characters_are_replaced() {
+        assert_eq!(
+            sanitize_terminal_text("name\x1b[31m\nnext\tpart"),
+            "name�[31m�next�part"
+        );
     }
 }

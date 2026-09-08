@@ -41,10 +41,11 @@ jobs:
   build-and-submit-msix:
     name: Build MSIX from the released exe and submit
     runs-on: windows-latest
+    environment: store-publish
 
     steps:
       - name: Checkout the tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag }}
 
@@ -61,7 +62,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path canonical, target/release | Out-Null
           gh release download "${{ inputs.tag }}" `
             --pattern 'audioremote-win32-x64.zip' --pattern 'SHA256SUMS.txt' `
-            --dir canonical --clobber
+            --dir canonical
           if ($LASTEXITCODE -ne 0) { throw "gh release download failed" }
 
           # sha256sum's format: "<hash>  <name>". Compare against the digest the
@@ -97,16 +98,21 @@ jobs:
       # samples still show, `microsoft/setup-msstore-cli`, no longer resolves:
       # the repository was renamed.
       - name: Set up the Microsoft Store CLI
-        uses: microsoft/microsoft-store-apppublisher@v1.1
+        uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
 
       - name: Configure the Microsoft Store CLI
         shell: pwsh
+        env:
+          PARTNER_CENTER_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          PARTNER_CENTER_SELLER_ID: ${{ secrets.SELLER_ID }}
+          PARTNER_CENTER_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          PARTNER_CENTER_CLIENT_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
         run: |
           msstore reconfigure `
-            --tenantId "${{ secrets.AZURE_AD_TENANT_ID }}" `
-            --sellerId "${{ secrets.SELLER_ID }}" `
-            --clientId "${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}" `
-            --clientSecret "${{ secrets.AZURE_AD_APPLICATION_SECRET }}"
+            --tenantId "$env:PARTNER_CENTER_TENANT_ID" `
+            --sellerId "$env:PARTNER_CENTER_SELLER_ID" `
+            --clientId "$env:PARTNER_CENTER_CLIENT_ID" `
+            --clientSecret "$env:PARTNER_CENTER_CLIENT_SECRET"
 
       # `msstore publish <path> -id <Store product id>`. There is no
       # `--productId` option, whatever the older samples say; `-i/--inputFile`

@@ -53,9 +53,88 @@ pub fn save(path: &Path, history: &History) -> std::io::Result<()> {
             format!("history write: {e}"),
         )
     })?;
-    fs::write(path, text)
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "history.toml".to_string());
+    let tmp = path.with_file_name(format!("{file_name}.{}.tmp", std::process::id()));
+
+    let written = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    })();
+    if let Err(e) = written {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
 }
 
 pub fn default_history_path() -> PathBuf {
     crate::config::data_dir().join("history.toml")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            let mut dir = std::env::temp_dir();
+            dir.push(format!(
+                "audioremote-history-test-{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&dir).expect("create scratch directory");
+            Self(dir)
+        }
+
+        fn path(&self) -> PathBuf {
+            self.0.join("history.toml")
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn save_is_atomic_and_leaves_no_temp_files() {
+        let scratch = Scratch::new();
+        let path = scratch.path();
+        let mut history = History::default();
+        history.touch("device-1");
+
+        save(&path, &history).expect("save history");
+        let loaded = load(&path).expect("load history");
+        assert_eq!(
+            loaded.last_used_at("device-1"),
+            history.last_used_at("device-1")
+        );
+
+        let leftovers: Vec<_> = fs::read_dir(&scratch.0)
+            .expect("read scratch directory")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
+    }
 }

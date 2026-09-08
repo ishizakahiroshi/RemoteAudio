@@ -136,13 +136,16 @@ RemoteAudio share               print the LAN URLs with the token in full
 RemoteAudio token list          list tokens (masked)
 RemoteAudio token list --show   list tokens in full
 RemoteAudio token add <name>    issue a new named token
-RemoteAudio token revoke <name|token>
+RemoteAudio token revoke <name>
+RemoteAudio token revoke --by-value <token>
 ```
 
 `token add` and `token revoke` take effect on a **running** server within a
 second — no restart. Everything else in `config.toml` (bind, port,
 `allowed_networks`, `device_sort`, and resident crash recovery) is read once at
-startup. Resident mode retries an unexpectedly stopped server with increasing
+startup. Token names are trimmed, blank names are rejected, and duplicate active
+names are rejected. Revoking by token value requires the explicit
+`--by-value` form. Resident mode retries an unexpectedly stopped server with increasing
 waits, then stops after repeated failures; run `RemoteAudio setup` to turn that
 recovery off.
 

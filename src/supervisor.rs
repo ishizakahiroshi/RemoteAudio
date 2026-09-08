@@ -453,7 +453,7 @@ impl Monitor {
                     // Goes nowhere in a release build, where the supervisor has
                     // no stdio handle of its own — `println!` is a no-op there,
                     // not an error. In `cargo run` it lands in the terminal.
-                    println!("{line}");
+                    println!("{}", crate::sanitize_terminal_text(&line));
                 }
             })
             .map(|_| ())

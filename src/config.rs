@@ -108,7 +108,8 @@ impl Default for AuthConfig {
 /// One named bearer token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenEntry {
-    /// Human label shown by `RemoteAudio token list`. Not required to be unique;
+    /// Human label shown by `RemoteAudio token list`. New active entries use a
+    /// unique label; hand-edited legacy files can still contain duplicates, so
     /// revoke-by-name acts on every non-revoked match.
     pub name: String,
     pub token: String,
@@ -392,8 +393,41 @@ pub fn load_auth(path: &Path) -> std::io::Result<AuthConfig> {
     Ok(config.auth)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenNameError {
+    Empty,
+    Duplicate,
+}
+
+impl std::fmt::Display for TokenNameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => f.write_str("token name must not be empty"),
+            Self::Duplicate => f.write_str("an active token already uses that name"),
+        }
+    }
+}
+
+impl std::error::Error for TokenNameError {}
+
 /// Append a new named token and return the generated token string.
-pub fn add_named_token(config: &mut Config, name: &str) -> String {
+pub fn add_named_token(
+    config: &mut Config,
+    name: &str,
+) -> std::result::Result<String, TokenNameError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(TokenNameError::Empty);
+    }
+    if config
+        .auth
+        .tokens
+        .iter()
+        .any(|t| !t.revoked && t.name.trim() == name)
+    {
+        return Err(TokenNameError::Duplicate);
+    }
+
     let token = generate_token();
     config.auth.tokens.push(TokenEntry {
         name: name.to_string(),
@@ -401,15 +435,31 @@ pub fn add_named_token(config: &mut Config, name: &str) -> String {
         created_at: now_unix(),
         revoked: false,
     });
-    token
+    Ok(token)
 }
 
-/// Revoke every non-revoked token matching `name_or_token` (by label or exact
-/// token value). Returns how many were revoked.
-pub fn revoke_token(config: &mut Config, name_or_token: &str) -> usize {
+/// Revoke every non-revoked token matching a label. Returns how many were
+/// revoked. New tokens reject duplicate active labels, but hand-edited legacy
+/// files can still contain duplicates, so the operation remains all-match.
+pub fn revoke_named_token(config: &mut Config, name: &str) -> usize {
+    let name = name.trim();
     let mut n = 0;
     for t in &mut config.auth.tokens {
-        if !t.revoked && (t.name == name_or_token || t.token == name_or_token) {
+        if !t.revoked && t.name.trim() == name {
+            t.revoked = true;
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Revoke every non-revoked token matching an exact token value. Keeping this
+/// separate from label revocation makes the credential-bearing operation an
+/// explicit CLI choice instead of an accidental fallback.
+pub fn revoke_token_value(config: &mut Config, token: &str) -> usize {
+    let mut n = 0;
+    for t in &mut config.auth.tokens {
+        if !t.revoked && t.token == token {
             t.revoked = true;
             n += 1;
         }
@@ -702,14 +752,14 @@ mod tests {
         let (mut cfg, _) = load_or_init(&path).expect("load");
         let first = cfg.share_token().expect("token").to_string();
 
-        let added = add_named_token(&mut cfg, "phone");
+        let added = add_named_token(&mut cfg, "phone").expect("add phone token");
         assert_eq!(cfg.auth.active_count(), 2);
-        assert_eq!(revoke_token(&mut cfg, "phone"), 1);
+        assert_eq!(revoke_named_token(&mut cfg, "phone"), 1);
         assert!(!cfg.auth.matches(&added));
         assert!(cfg.auth.matches(&first));
-        assert_eq!(revoke_token(&mut cfg, "phone"), 0, "already revoked");
+        assert_eq!(revoke_named_token(&mut cfg, "phone"), 0, "already revoked");
 
-        assert_eq!(revoke_token(&mut cfg, &first), 1);
+        assert_eq!(revoke_token_value(&mut cfg, &first), 1);
         assert_eq!(cfg.auth.active_count(), 0);
         save(&path, &cfg).expect("save");
         // Reloading an all-revoked file must mint a replacement, never boot with
@@ -752,14 +802,40 @@ mod tests {
         let original = cfg.share_token().expect("token").to_string();
 
         // Stand in for `RemoteAudio token add` running as a separate process.
-        let added = add_named_token(&mut cfg, "guest");
-        revoke_token(&mut cfg, &original);
+        let added = add_named_token(&mut cfg, "guest").expect("add guest token");
+        revoke_token_value(&mut cfg, &original);
         save(&path, &cfg).expect("save");
 
         let auth = load_auth(&path).expect("load_auth");
         assert!(auth.matches(&added));
         assert!(!auth.matches(&original));
         assert!(auth.require_token);
+    }
+
+    #[test]
+    fn token_names_are_trimmed_and_active_duplicates_are_rejected() {
+        let mut cfg = Config::default();
+        let _ = add_named_token(&mut cfg, "  phone  ").expect("trim token name");
+        assert_eq!(cfg.auth.tokens[0].name, "phone");
+        assert_eq!(
+            add_named_token(&mut cfg, "phone"),
+            Err(TokenNameError::Duplicate)
+        );
+        assert_eq!(add_named_token(&mut cfg, "   "), Err(TokenNameError::Empty));
+
+        assert_eq!(revoke_named_token(&mut cfg, " phone "), 1);
+        assert!(add_named_token(&mut cfg, "phone").is_ok());
+    }
+
+    #[test]
+    fn name_and_value_revocation_are_separate_operations() {
+        let mut cfg = Config::default();
+        let token = add_named_token(&mut cfg, "phone").expect("add phone token");
+
+        assert_eq!(revoke_named_token(&mut cfg, &token), 0);
+        assert!(cfg.auth.matches(&token));
+        assert_eq!(revoke_token_value(&mut cfg, &token), 1);
+        assert!(!cfg.auth.matches(&token));
     }
 
     #[test]

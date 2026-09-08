@@ -23,6 +23,7 @@ include = [
     "web/**",
     "build.rs",
     "Cargo.toml",
+    "Cargo.lock",
     "LICENSE",
     "README.md",
     "packaging/audioremote.manifest",
