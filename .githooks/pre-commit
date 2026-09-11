@@ -2,4 +2,16 @@
 # secrets-scan layer 2 (per-commit) — non-pnpm path via core.hooksPath = .githooks
 # 設計詳細: docs/local/secrets-scan-design/ (gitignored)
 # Activate with: bash scripts/install-hooks.sh  or  pwsh scripts/install-hooks.ps1
-node scripts/secrets-scan.mjs --staged --block
+node scripts/secrets-scan.mjs --staged --block || exit 1
+
+# --- omitnix: 生成物の鮮度検査（2026-09-11 追加） ---
+# コミット済みの .omitnix/index.json が、いまのソースと食い違っていたら止める。
+# 書き換えはしない。hook が生成物を書き換えると、レビューされていない内容が
+# コミットへ混ざるため。止まったら `omitnix` を実行して差分を確認し、
+# 生成された index.json を自分で git add すること。
+# 新規ファイルの gate（--gate）は意図的に入れていない。
+if command -v omitnix >/dev/null 2>&1; then
+	omitnix --check || exit 1
+elif command -v python >/dev/null 2>&1 && python -c "import omitnix" >/dev/null 2>&1; then
+	python -m omitnix --check || exit 1
+fi
