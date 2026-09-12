@@ -60,7 +60,7 @@ function isAllowedEmail(matched) {
 
 // === Public product-name allowlist (kb watchlist) ===
 // kb 台帳名の括弧なし変形（expandNameVariants）が、世界的な公開 OSS 名や一般英単語と
-// 衝突して誤検知だけを生む場合にここへ書く。括弧付きフル名（例: 'Nextcloud(メイジエ)'）と
+// 衝突して誤検知だけを生む場合にここへ書く。括弧付きフル名（例: 'ServiceName(CompanyName)'）と
 // servers.csv のホスト名は引き続き検知されるため、会社との紐付き漏洩は別途捕捉される。
 const ALLOWED_PUBLIC_NAMES = [
   'Nextcloud', // 公開 OSS 製品名
@@ -112,9 +112,9 @@ function parseCSV(text) {
 // === Watchlist loading ===
 
 // Some kb names include a parenthetical category/disambiguator
-// (e.g. "クロノス(勤怠)" / "Nextcloud(メイジエ)"). For matching purposes
+// (e.g. "ProductName(Purpose)" / "ServiceName(CompanyName)"). For matching purposes
 // we want BOTH the full string AND the bare name before the paren,
-// so a leak of just "クロノス" (without paren) is still caught.
+// so a leak of just "ProductName" (without paren) is still caught.
 function expandNameVariants(value) {
   const variants = new Set();
   if (value.length >= MIN_NEEDLE_LEN) variants.add(value);
