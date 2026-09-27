@@ -1,4 +1,11 @@
 ---
+cover:
+  path: portfolio/overview-2026-09-28.jpg
+  alt: {ja: "RemoteAudio の紹介動画", en: "RemoteAudio overview video"}
+video:
+  provider: youtube
+  id: "RUuehi4DY6M"
+  durationSeconds: 20
 schemaVersion: 1
 color: "#ff7a3d"
 initials: "ar"

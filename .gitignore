@@ -69,3 +69,6 @@ secrets.*
 .netrc
 .npmrc
 .pypirc
+
+# Local video production files
+/brag-output/
