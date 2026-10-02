@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated": {
-    "commit": "c7b7a889ed30fe935d14c02f9d091d711a022408",
+    "commit": "60863619aa789ca0ef9d9e95cbf61c08decdb556",
     "dirty": true,
     "tool": "omitnix 0.1.3",
     "partial": false,
@@ -80,7 +80,11 @@
           ".rs"
         ],
         "capabilities": [
-          "summary"
+          "authentication",
+          "authorization",
+          "reads",
+          "summary",
+          "writes"
         ]
       },
       {
@@ -318,16 +322,18 @@
           "value": "Extract direct dependencies at build time and emit a static Rust table so"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -630,16 +636,18 @@
           "value": "\"About this app\" response. Bundles product identity + generated OSS list"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -657,16 +665,18 @@
           "value": "The Web UI, embedded into the exe at build time."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -684,16 +694,18 @@
           "value": "Windows Core Audio wrapper."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -711,16 +723,18 @@
           "value": "Manual COM binding for the non-public IPolicyConfig interface."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -738,16 +752,18 @@
           "value": "Live bearer-token state."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -765,16 +781,18 @@
           "value": "Per-user Windows logon autostart, plus the inbound firewall rule that makes"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -792,16 +810,18 @@
           "value": "A short-lived arrow that points at the app's own notification-area icon."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -819,16 +839,18 @@
           "value": "Persisted server settings. Lives in `%APPDATA%\\audioremote\\config.toml`"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -846,16 +868,18 @@
           "value": "Device usage history for `device_sort = \"recent\"`. Kept in a separate TOML"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -873,16 +897,18 @@
           "value": "String lookup for the **host** side of the app (the tray)."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -900,16 +926,18 @@
           "value": "No console window in a release build. Debug keeps one, because `cargo run`"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -927,16 +955,18 @@
           "value": "Small helpers for network discovery / share URL construction. Kept in a"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -954,16 +984,18 @@
           "value": "HTTP server: JSON API + embedded Web UI, plus the guards that make a"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -981,16 +1013,18 @@
           "value": "Terminal startup splash. ASCII art of the app icon (speaker + waves +"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -1008,16 +1042,18 @@
           "value": "Keeps exactly one `RemoteAudio serve` child alive for the length of the"
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -1035,16 +1071,18 @@
           "value": "Notification-area icon for the resident supervisor."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
@@ -1062,16 +1100,18 @@
           "value": "The window that tells a first-time user where the app went."
         },
         "authentication": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "authorization": {
-          "state": "out_of_scope"
+          "state": "not_configured"
         },
         "reads": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "writes": {
-          "state": "out_of_scope"
+          "state": "none_observed",
+          "value": []
         },
         "screen_to_api": {
           "state": "out_of_scope"
