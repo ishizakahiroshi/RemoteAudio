@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated": {
-    "commit": "2427b39850afc3c72961674ff952287400acc267",
+    "commit": "573efff9e3bce146c4b552737fbfdec21027de55",
     "dirty": true,
     "tool": "omitnix 0.1.3",
     "partial": false,
@@ -138,11 +138,11 @@
     "discovery_note": ""
   },
   "coverage": {
-    "discovered": 71,
+    "discovered": 70,
     "analyzed": 28,
     "unresolved": 1,
     "unknown": 0,
-    "unclaimed": 42,
+    "unclaimed": 41,
     "skipped_by_config": 0
   },
   "files": [
@@ -348,14 +348,6 @@
       "fields": {},
       "unresolved": [],
       "reason": "no adapter claims '.json'"
-    },
-    {
-      "path": "opencode.json.many-ai-cli.lock",
-      "adapter": null,
-      "status": "unclaimed",
-      "fields": {},
-      "unresolved": [],
-      "reason": "no adapter claims '.lock'"
     },
     {
       "path": "package.json",
