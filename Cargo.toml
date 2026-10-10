@@ -69,6 +69,9 @@ windows = { version = "0.58", features = [
     # main.rs: AttachConsole, so the CLI subcommands still print once the release
     # build stops carrying a console of its own.
     "Win32_System_Console",
+    # audio/mod.rs: Beep emits the short host-side test tone requested from the
+    # Web UI. Unlike Web Audio, this follows the Windows host's output device.
+    "Win32_System_Diagnostics_Debug",
     # main.rs: reopening CONIN$/CONOUT$ after that attach.
     "Win32_Storage_FileSystem",
     # autostart.rs: `GetCurrentPackageFullName` answers "am I the MSIX build?",

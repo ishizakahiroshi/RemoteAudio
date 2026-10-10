@@ -311,6 +311,31 @@ function volumeButtonLabel(muted) {
   return t(muted ? "volume.unmuteLabel" : "volume.muteLabel");
 }
 
+let testSoundPlaying = false;
+
+function updateTestSoundButton() {
+  const button = document.getElementById("volumeTestButton");
+  if (!button) return;
+  button.disabled = testSoundPlaying;
+  button.textContent = testSoundPlaying ? t("volume.testing") : "▶ " + t("volume.test");
+  button.setAttribute("aria-label", t("volume.testLabel"));
+}
+
+async function playTestSound() {
+  if (testSoundPlaying) return;
+  testSoundPlaying = true;
+  updateTestSoundButton();
+  try {
+    await api("/api/test-sound", { method: "POST" });
+    toast(t("toast.testSoundPlayed"), "ok");
+  } catch (e) {
+    if (e.message !== "unauthorized") toast(t("toast.testSoundFailed", { msg: e.message }), "err");
+  } finally {
+    testSoundPlaying = false;
+    updateTestSoundButton();
+  }
+}
+
 function updateVolumeDom(volume) {
   if (!volume) return;
   const percent = volumePercent(volume.level);
@@ -554,6 +579,14 @@ function renderVolumePanel() {
     "aria-pressed": String(v.muted),
     onclick: () => updateVolumeDraft({ muted: !((volumeControl.draft || state.volume).muted) }),
   }, volumeButtonText(v.muted));
+  const testButton = h("button", {
+    id: "volumeTestButton",
+    class: "btn volume-test",
+    type: "button",
+    "aria-label": t("volume.testLabel"),
+    onclick: () => { void playTestSound(); },
+  }, testSoundPlaying ? t("volume.testing") : "▶ " + t("volume.test"));
+  testButton.disabled = testSoundPlaying;
 
   return h("section", { class: "volume-panel", "aria-labelledby": "volumeTitle" },
     h("div", { class: "volume-head" },
@@ -564,7 +597,7 @@ function renderVolumePanel() {
       h("output", { id: "volumeLevel", class: "volume-level", for: "volumeSlider" }, percent + "%"),
     ),
     slider,
-    muteButton,
+    h("div", { class: "volume-actions" }, muteButton, testButton),
   );
 }
 

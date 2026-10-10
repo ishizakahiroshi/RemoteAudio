@@ -16,6 +16,7 @@ use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL,
     COINIT_MULTITHREADED, STGM_READ,
 };
+use windows::Win32::System::Diagnostics::Debug::Beep;
 
 mod policyconfig;
 
@@ -366,6 +367,13 @@ pub fn update_master_volume(level: Option<f32>, muted: Option<bool>) -> Result<M
         })?;
     }
     read_master_volume(id, &endpoint)
+}
+
+/// Play a short, host-side confirmation tone through Windows' current default
+/// output. The HTTP layer runs this through `AudioGate`, just like every other
+/// audio operation, so a test tone cannot overlap a device switch.
+pub fn play_test_sound() -> Result<()> {
+    wrap("Beep(test sound)", unsafe { Beep(880, 180) })
 }
 
 #[cfg(test)]

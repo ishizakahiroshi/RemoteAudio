@@ -176,6 +176,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/devices", get(devices_handler))
         .route("/api/devices/:id/default", post(set_default_handler))
         .route("/api/volume", get(volume_handler).post(set_volume_handler))
+        .route("/api/test-sound", post(test_sound_handler))
         .route("/api/restart", post(restart_handler))
         .route("/api/about", get(about_handler))
         .route("/api/languages", get(languages_handler))
@@ -375,6 +376,14 @@ async fn set_volume_handler(
         .await;
     match result {
         Ok(Ok(volume)) => Json(volume).into_response(),
+        Ok(Err(e)) => audio_error(e),
+        Err(e) => gate_error(e),
+    }
+}
+
+async fn test_sound_handler(State(state): State<AppState>) -> Response {
+    match state.audio.run(audio::play_test_sound).await {
+        Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
         Ok(Err(e)) => audio_error(e),
         Err(e) => gate_error(e),
     }
@@ -1211,7 +1220,7 @@ mod tests {
                 .set_read_timeout(Some(Duration::from_secs(10)))
                 .expect("read timeout");
             let raw = format!(
-                "POST /api/devices/whatever/default HTTP/1.1\r\nHost: {host}\r\n\
+                "POST /api/test-sound HTTP/1.1\r\nHost: {host}\r\n\
                  Origin: http://evil.example\r\nSec-Fetch-Site: cross-site\r\n\
                  Content-Length: 0\r\nConnection: close\r\n\r\n"
             );
@@ -1223,7 +1232,7 @@ mod tests {
         .await
         .expect("join");
 
-        // 403 before any Core Audio call happens — the handler is never reached.
+        // 403 before any host-side sound happens — the handler is never reached.
         assert!(response.starts_with("HTTP/1.1 403"), "{response}");
         assert!(
             response.contains("cross-origin request refused"),

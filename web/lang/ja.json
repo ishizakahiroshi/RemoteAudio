@@ -32,6 +32,9 @@
   "volume.unmute": "ミュート解除",
   "volume.muteLabel": "マスター音量をミュート",
   "volume.unmuteLabel": "マスター音量のミュートを解除",
+  "volume.test": "テスト再生",
+  "volume.testing": "再生中…",
+  "volume.testLabel": "既定の出力でテスト音を再生",
 
   "devices.applying": "適用中…",
   "devices.footerNote": "タップで Console / Multimedia / Communications をまとめて切替。",
@@ -99,6 +102,8 @@
 
   "toast.switchFailed": "切替に失敗: {msg}",
   "toast.volumeFailed": "音量変更に失敗: {msg}",
+  "toast.testSoundPlayed": "テスト音を再生しました",
+  "toast.testSoundFailed": "テスト再生に失敗: {msg}",
   "toast.restartRequested": "ホストのサーバーを再起動しています…",
   "toast.restartFailed": "再起動に失敗: {msg}",
 

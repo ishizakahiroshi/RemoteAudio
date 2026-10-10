@@ -32,6 +32,9 @@
   "volume.unmute": "Unmute",
   "volume.muteLabel": "Mute master volume",
   "volume.unmuteLabel": "Unmute master volume",
+  "volume.test": "Test sound",
+  "volume.testing": "Playing…",
+  "volume.testLabel": "Play a test sound through the default output",
 
   "devices.applying": "Applying…",
   "devices.footerNote": "Tap to switch Console / Multimedia / Communications together.",
@@ -99,6 +102,8 @@
 
   "toast.switchFailed": "Switch failed: {msg}",
   "toast.volumeFailed": "Volume change failed: {msg}",
+  "toast.testSoundPlayed": "Test sound played",
+  "toast.testSoundFailed": "Test sound failed: {msg}",
   "toast.restartRequested": "Restarting the host server…",
   "toast.restartFailed": "Restart failed: {msg}",
 
