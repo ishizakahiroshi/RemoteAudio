@@ -50,8 +50,23 @@ const ALLOWED_EMAIL_DOMAINS = [
   'example.com',               // ドキュメントの例示用
   'example.net',               // ドキュメントの例示用（RFC 2606 予約）
   'example.org',               // ドキュメントの例示用（RFC 2606 予約）
+  'example.invalid',           // テスト fixture 用（RFC 2606 予約・名前解決されない）
   // ここに各プロジェクトの公開窓口ドメインを追記する（例: 'manabi-map.app'）
 ];
+
+// 一致した値そのものはレポートへ出さない。
+// このレポートは CI のログと端末のスクロールバックに残り、どちらも保持される。
+// 公開リポの Actions ログは誰でも読めるので、検知した秘密をそこへ書き出しては
+// 走査器自身が漏洩経路になる。突き合わせに要る情報（長さ・先頭末尾 1 文字）だけ残し、
+// 中身は file:line を開いて確認させる。
+// Do not print the matched value. This report lands in CI logs and terminal scrollback,
+// both retained and public for public repos; writing a detected secret there makes the
+// scanner its own leak path.
+function maskMatch(matched) {
+  const s = String(matched);
+  if (s.length <= 2) return `<${s.length} chars, masked>`;
+  return `${s[0]}...${s[s.length - 1]} <${s.length} chars, masked>`;
+}
 
 function isAllowedEmail(matched) {
   const email = matched.toLowerCase();
@@ -215,7 +230,10 @@ function getStructuralPatterns() {
       // RFC1918 (10/8, 172.16/12, 192.168/16) のみを内部 LAN トポロジー漏洩として検知する。
       name: 'Private IPv4 (RFC1918)',
       regex: /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/g,
-      suggestion: '内部 IP を一般化または削除 / Generalize or remove internal IP',
+      // 置換先を名指しする: RFC5737 TEST-NET は層 3（CI の gitleaks で公開 IP を検知する構成）でも
+      // 例示用として許容されるのが通例で、この置換なら層 2 / 層 3 の両方を一度で通る（2026-09-01 制定。
+      // 「一般化」だけ案内すると CGNAT 等の公開レンジへ置換されて CI 層で二度目に止まる）。
+      suggestion: 'RFC5737 TEST-NET (192.0.2.x / 198.51.100.x / 203.0.113.x) へ置換または削除 / Replace with RFC5737 TEST-NET documentation IPs or remove',
     },
     {
       // allowlist（ALLOWED_EMAILS / ALLOWED_EMAIL_DOMAINS）に無いメールアドレスは全件ブロック。
@@ -303,12 +321,40 @@ function isSkipFilename(path) {
 
 // === Scanning ===
 
+// === Short-needle boundary rule ===
+// 2 文字以下の watchlist 名は、そのままの部分文字列一致だと乱数めいた文字列に
+// 無数に当たる（実例: YouTube の動画 ID `5vudjnGWFKc` の中の `WF` が kb のアプリ名に
+// 一致して push がブロックされた・2026-08-30）。短い needle は「前後が英数字でない」
+// ときだけ一致させる。実際の言及（`WF の設定` / `（WF）` / 行頭・行末）は引き続き当たり、
+// 検知の網は落ちない。3 文字以上は従来どおり素の部分文字列一致。
+const SHORT_NEEDLE_MAX = 2;
+const ALNUM = /[A-Za-z0-9]/;
+
+function matchesNeedle(line, needle) {
+  if (needle.length > SHORT_NEEDLE_MAX) return line.includes(needle);
+  let from = 0;
+  for (;;) {
+    const i = line.indexOf(needle, from);
+    if (i < 0) return false;
+    const before = i > 0 ? line[i - 1] : '';
+    const after = line[i + needle.length] || '';
+    if (!ALNUM.test(before) && !ALNUM.test(after)) return true;
+    from = i + 1;
+  }
+}
+
 function scanFile(path, needleMap, structuralPatterns) {
   if (!existsSync(path)) return [];
   let stat;
   try { stat = statSync(path); } catch { return []; }
   if (!stat.isFile()) return [];
-  if (stat.size > MAX_FILE_SIZE) return [];
+  if (stat.size > MAX_FILE_SIZE) {
+    // 無音でスキップすると「scanned N件」に数だけ入り、走査済みに見えて
+    // しまう。1MB超のファイルへ秘密を置けばゲートを素通りできてしまうため、
+    // 少なくとも気づけるようにstderrへ出す（ブロック挙動は変えない）。
+    console.error(`WARN: skipped ${path} (${stat.size} bytes > ${MAX_FILE_SIZE}) — too large to scan for secrets`);
+    return [];
+  }
 
   let content;
   try { content = readFileSync(path, 'utf8'); } catch { return []; }
@@ -321,7 +367,7 @@ function scanFile(path, needleMap, structuralPatterns) {
 
     // watchlist needles (substring match)
     for (const [needle, source] of needleMap) {
-      if (line.includes(needle) && !isAllowedByDirective(line, needle)) {
+      if (matchesNeedle(line, needle) && !isAllowedByDirective(line, needle)) {
         hits.push({
           file: path,
           lineNumber: i + 1,
@@ -365,9 +411,14 @@ function formatHitsText(hits, mode) {
   lines.push(`ブロック: スキャン対象に ${hits.length} 件の混入を検知`);
   lines.push('================================================================');
   lines.push('');
+  lines.push('Matched values are masked on purpose: this report is written to CI logs and');
+  lines.push('terminal scrollback, both of which are retained. Open the cited file:line yourself.');
+  lines.push('一致した値は意図的に伏せている。本レポートは CI ログと端末のスクロールバックに残るため。');
+  lines.push('中身は引用された file:line を自分で開いて確認すること。');
+  lines.push('');
   for (const h of hits) {
     lines.push(`  ${h.file}:${h.lineNumber}`);
-    lines.push(`    matched : '${h.matched}'`);
+    lines.push(`    matched : ${maskMatch(h.matched)}`);
     lines.push(`    source  : ${h.source}`);
     lines.push(`    suggest : ${h.suggestion}`);
     lines.push('');
