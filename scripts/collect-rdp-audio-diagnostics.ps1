@@ -127,9 +127,15 @@ try {
             if ($readErrors.Count -gt 0 -and @($readErrors | Where-Object { $_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*' }).Count -gt 0) { throw 'event_read_failed' }
             Set-State 'rdp_events' 'available'
             foreach ($entry in $events) {
-                $lastRecord = [long]$entry.RecordId
-                if ($entry.TimeCreated.ToUniversalTime() -lt $startedUtc) { continue }
-                $xml = [xml]$entry.ToXml()
+                if ($entry.TimeCreated.ToUniversalTime() -lt $startedUtc) { $lastRecord = [long]$entry.RecordId; continue }
+                try { $xml = [xml]$entry.ToXml() } catch {
+                    # Expose lost conversion evidence before advancing past this
+                    # record; never persist the XML or exception description.
+                    Write-Record 'collector_gap' @{ component = 'rdp_events'; reason = 'event_parse_failed' }
+                    $lastRecord = [long]$entry.RecordId
+                    if ($script:limitReached) { break }
+                    continue
+                }
                 $matched = @{}
                 foreach ($data in $xml.SelectNodes("/*[local-name()='Event']/*[local-name()='EventData']/*[local-name()='Data']")) {
                     # A matching arbitrary value (for example UserName=rdpsnd)
@@ -141,6 +147,7 @@ try {
                 foreach ($channel in $matched.Keys) {
                     Write-Record 'rdp_audio_channel' @{ channel = $channel; event_id = [int]$entry.Id; event_utc_unix_ms = ([DateTimeOffset]$entry.TimeCreated.ToUniversalTime()).ToUnixTimeMilliseconds() }
                 }
+                $lastRecord = [long]$entry.RecordId
                 if ($script:limitReached) { break }
             }
             if ($events.Count -eq 256) { Set-State 'rdp_event_backlog' 'pending' } else { Set-State 'rdp_event_backlog' 'clear' }

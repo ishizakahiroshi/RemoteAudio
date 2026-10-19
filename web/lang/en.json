@@ -175,15 +175,17 @@
   "diagnostics.marker.stop_pressed": "Stop button pressed",
   "diagnostics.marker.sound_stopped": "Sound stopped",
   "diagnostics.markerSaved": "Marker saved at host arrival time",
-  "diagnostics.captures": "Saved captures ({count})",
+  "diagnostics.captures": "Saved capture files ({count})",
   "diagnostics.captureInfo": "{bytes} bytes · {status}",
   "diagnostics.download": "Download JSONL",
   "diagnostics.purge": "Delete all captures…",
-  "diagnostics.confirmPurge": "Permanently delete all {count} saved capture files from this host? This cannot be undone. Download anything you need first.",
+  "diagnostics.confirmPurge": "Permanently delete all {count} saved capture files from this host, including published JSONL files and incomplete-startup staging files? This cannot be undone. Download anything you need first.",
   "diagnostics.purged": "Deleted {count} capture files",
   "diagnostics.failed": "Diagnostic action failed: {msg}. Check the refreshed state before retrying.",
   "diagnostics.status.active": "Capturing",
   "diagnostics.status.stopped": "Stopped",
   "diagnostics.status.interrupted": "Interrupted",
-  "diagnostics.interruptedHint": "Interrupted means the file has no complete terminal record, for example after a process interruption or write failure."
+  "diagnostics.interruptedHint": "Interrupted means the file has no complete terminal record, for example after a process interruption or write failure.",
+  "diagnostics.status.startup_incomplete": "Incomplete startup",
+  "diagnostics.startupIncompleteHint": "Startup staging file; no published JSONL download. Included in Delete all captures. Each file is counted separately, even when capture IDs match."
 }

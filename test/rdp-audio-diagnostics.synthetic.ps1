@@ -117,11 +117,18 @@ try {
     Assert ($gapReport.warnings -contains 'sequence_gap:host:3') 'Missing host sequence must be detected'
     Assert ($gapReport.stop_observations[0].status -eq 'incomplete_host_sequence') 'Host gaps must suppress latency'
     Assert ($null -eq $gapReport.stop_observations[0].delta_ms) 'Host gap must not yield a numeric difference'
-    foreach ($limitCase in @('count', 'input_bytes', 'report_bytes')) {
+    $aggregateSecond = Join-Path $temp 'aggregate-second.jsonl'
+    [IO.File]::WriteAllBytes($aggregateSecond, [IO.File]::ReadAllBytes($inputs[0]))
+    foreach ($limitCase in @('count', 'input_bytes', 'aggregate_bytes', 'report_bytes')) {
         $limitOutput = Join-Path $temp ('refused-' + $limitCase + '.json')
         $arguments = @{ InputPath = @($inputs[0]); CaptureId = $id; OutputPath = $limitOutput }
         if ($limitCase -eq 'count') { $arguments.InputPath = @($inputs[0], $inputs[0], $inputs[0]) }
         if ($limitCase -eq 'input_bytes') { $arguments.MaxInputBytes = 16 }
+        if ($limitCase -eq 'aggregate_bytes') {
+            $arguments.InputPath = @($inputs[0], $aggregateSecond)
+            $arguments.MaxInputBytes = (Get-Item $inputs[0]).Length + 1
+            Assert ((Get-Item $inputs[0]).Length -lt $arguments.MaxInputBytes -and (Get-Item $aggregateSecond).Length -lt $arguments.MaxInputBytes) 'Each aggregate fixture must individually fit under the byte limit'
+        }
         if ($limitCase -eq 'report_bytes') { $arguments.MaxReportBytes = 16 }
         $refused = $false
         try { & (Join-Path $root 'scripts/analyze-rdp-audio-diagnostics.ps1') @arguments } catch { $refused = $true }
@@ -186,6 +193,33 @@ try {
     Assert (@($rolloverRecords | Where-Object { $_.event -eq 'rdp_audio_channel' }).Count -eq 256) 'Namespaced channel records must parse without replaying consumed cursor'
     Assert (@($rolloverRecords | Where-Object { $_.component -eq 'rdp_event_backlog' -and $_.state -eq 'pending' }).Count -eq 1) 'Full batch must signal backlog'
     Assert (@($rolloverRecords | Where-Object { $_.component -eq 'rdp_event_backlog' -and $_.state -eq 'clear' }).Count -eq 1) 'Drained cursor must clear backlog'
+    # Failed conversion and malformed XML must each leave a gap and not discard
+    # the later valid event in the same batch. No exception or XML text is stored.
+    $conversionMock = @{ initialized = $false }
+    function Get-WinEvent {
+        [CmdletBinding()]param($ListLog, $LogName, $MaxEvents, $FilterXPath, [switch]$Oldest)
+        if ($ListLog) { return [pscustomobject]@{ IsEnabled = $true } }
+        if (-not $FilterXPath) {
+            if ($Oldest) { return [pscustomobject]@{ RecordId = 1 } }
+            if (-not $conversionMock.initialized) { $conversionMock.initialized = $true; return [pscustomobject]@{ RecordId = 1 } }
+            return [pscustomobject]@{ RecordId = 4 }
+        }
+        if ($FilterXPath.Contains('4')) { return }
+        $throws = [pscustomobject]@{ RecordId = 2; Id = 132; TimeCreated = [DateTime]::UtcNow }
+        $throws | Add-Member ScriptMethod ToXml { throw 'synthetic-do-not-copy-exception' }
+        $malformed = [pscustomobject]@{ RecordId = 3; Id = 132; TimeCreated = [DateTime]::UtcNow }
+        $malformed | Add-Member ScriptMethod ToXml { '<Event><synthetic-do-not-copy' }
+        $valid = [pscustomobject]@{ RecordId = 4; Id = 132; TimeCreated = [DateTime]::UtcNow }
+        $valid | Add-Member ScriptMethod ToXml { '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><EventData><Data Name="ChannelName">rdpsnd</Data></EventData></Event>' }
+        return @($throws, $malformed, $valid)
+    }
+    $conversionPath = Join-Path $temp 'conversion-failure.jsonl'
+    & (Join-Path $root 'scripts/collect-rdp-audio-diagnostics.ps1') -CaptureId $id -OutputPath $conversionPath -DurationSeconds 1
+    $conversionRaw = [IO.File]::ReadAllText($conversionPath)
+    $conversionRecords = @(Get-Content $conversionPath | ForEach-Object { $_ | ConvertFrom-Json })
+    Assert (@($conversionRecords | Where-Object { $_.event -eq 'collector_gap' -and $_.reason -eq 'event_parse_failed' }).Count -eq 2) 'Both failed event conversions must leave explicit gaps'
+    Assert (@($conversionRecords | Where-Object { $_.event -eq 'rdp_audio_channel' }).Count -eq 1) 'Later valid event must survive earlier conversion failures'
+    Assert (-not $conversionRaw.Contains('synthetic-do-not-copy')) 'Conversion exception or malformed XML leaked'
     # The English and Japanese tables share numeric indices, never guessed names.
     $syntheticLocale = 'en'
     function Get-ItemProperty {

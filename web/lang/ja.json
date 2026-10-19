@@ -175,15 +175,17 @@
   "diagnostics.marker.stop_pressed": "停止ボタンを押した",
   "diagnostics.marker.sound_stopped": "音が止まった",
   "diagnostics.markerSaved": "ホスト到着時刻でマーカーを保存しました",
-  "diagnostics.captures": "保存済みの記録（{count} 件）",
+  "diagnostics.captures": "保存済みの記録ファイル（{count} 件）",
   "diagnostics.captureInfo": "{bytes} バイト・{status}",
   "diagnostics.download": "JSONL をダウンロード",
   "diagnostics.purge": "記録をすべて消去…",
-  "diagnostics.confirmPurge": "このホストに保存された {count} 件の記録ファイルをすべて完全に消去しますか？元に戻せません。必要なファイルは先にダウンロードしてください。",
+  "diagnostics.confirmPurge": "このホストに保存された {count} 件の記録ファイル（公開済み JSONL と開始未完了の一時ファイルを含む）をすべて完全に消去しますか？元に戻せません。必要なファイルは先にダウンロードしてください。",
   "diagnostics.purged": "{count} 件の記録ファイルを消去しました",
   "diagnostics.failed": "診断操作に失敗: {msg}。再実行する前に再取得された状態を確認してください。",
   "diagnostics.status.active": "計測中",
   "diagnostics.status.stopped": "停止済み",
   "diagnostics.status.interrupted": "中断",
-  "diagnostics.interruptedHint": "「中断」は完了を示す終端レコードがない状態です。プロセスの中断や書き込み失敗などで発生します。"
+  "diagnostics.interruptedHint": "「中断」は完了を示す終端レコードがない状態です。プロセスの中断や書き込み失敗などで発生します。",
+  "diagnostics.status.startup_incomplete": "開始未完了",
+  "diagnostics.startupIncompleteHint": "開始処理の一時ファイルです。公開済み JSONL としてダウンロードできません。「記録をすべて消去」の対象です。計測 ID が同じでも、ファイルごとに件数に含まれます。"
 }

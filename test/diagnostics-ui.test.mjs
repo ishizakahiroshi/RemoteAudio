@@ -170,3 +170,25 @@ test("rendered controls disable start, markers and purge for unknown state", () 
   assert.equal(buttons.filter((b) => !b.disabled).length, 1);
   assert.equal(buttons.find((b) => !b.disabled).children[0], "Refresh");
 });
+
+test("incomplete startup files have no download and count separately for purge", async () => {
+  // A published capture and leftover staging file can share the same ID.
+  const data = { active: null, captures: [
+    ...inventory.captures,
+    { capture_id: id, bytes: 42, status: "startup_incomplete" },
+  ] };
+  const h = harness(async (path) => path.endsWith("/purge") ? json({ deleted: 2 }) : json(data));
+  h.context.inventory = data;
+  h.run("state.diagnostics = inventory");
+  const panel = h.run("renderDiagnosticsPanel()");
+  const rows = panel.children.find((node) => node?.tag === "ul").children;
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].children.filter((node) => node?.tag === "button").length, 1);
+  assert.equal(rows[1].children.filter((node) => node?.tag === "button").length, 0);
+  assert.match(rows[1].children[1].children[0], /Incomplete startup/);
+  assert.match(panel.children.find((node) => node?.tag === "h3").children[0], /\(2\)/);
+  await h.run("purgeDiagnostics()");
+  assert.match(h.confirms[0], /all 2 saved capture files.*published JSONL.*staging files/);
+  const purge = h.calls.find((call) => call.path.endsWith("/purge"));
+  assert.deepEqual(JSON.parse(purge.opts.body), { confirm_count: 2 });
+});

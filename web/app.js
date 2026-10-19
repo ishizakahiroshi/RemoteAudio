@@ -577,7 +577,9 @@ function renderDiagnosticsPanel() {
     list.append(h("li", {},
       h("span", { class: "diagnostics-id" }, capture.capture_id),
       h("span", {}, t("diagnostics.captureInfo", { bytes: capture.bytes, status: tOptional("diagnostics.status." + capture.status) || capture.status })),
-      button("diagnostics.download", () => downloadDiagnosticCapture(capture.capture_id)),
+      capture.status === "startup_incomplete"
+        ? h("span", {}, t("diagnostics.startupIncompleteHint"))
+        : button("diagnostics.download", () => downloadDiagnosticCapture(capture.capture_id)),
     ));
   }
   panel.append(list,

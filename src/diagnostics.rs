@@ -124,6 +124,22 @@ impl Diagnostics {
         }
         Ok(())
     }
+    // The strict staging namespace is reserved for this application. A crash
+    // can leave any amount of header data, so ownership does not depend on its
+    // contents. Never follow a link or accept a directory in this namespace.
+    fn pending_metadata(&self, id: &str) -> io::Result<fs::Metadata> {
+        if !valid_id(id) {
+            return Err(invalid());
+        }
+        self.directory_safe()?;
+        let path = self.directory.join(format!("capture-{id}.pending"));
+        let meta = fs::symlink_metadata(path)?;
+        if !meta.is_file() || is_link(&meta) {
+            return Err(invalid());
+        }
+        Ok(meta)
+    }
+
     fn owned_file(&self, id: &str) -> io::Result<File> {
         if !valid_id(id) {
             return Err(invalid());
@@ -448,6 +464,19 @@ impl Diagnostics {
             let Some(name) = name.to_str() else {
                 continue;
             };
+            if let Some(id) = name
+                .strip_prefix("capture-")
+                .and_then(|s| s.strip_suffix(".pending"))
+            {
+                if let Ok(meta) = self.pending_metadata(id) {
+                    out.push(CaptureInfo {
+                        capture_id: id.to_string(),
+                        bytes: meta.len(),
+                        status: "startup_incomplete",
+                    });
+                }
+                continue;
+            }
             let Some(id) = name
                 .strip_prefix("capture-")
                 .and_then(|s| s.strip_suffix(".jsonl"))
@@ -480,7 +509,11 @@ impl Diagnostics {
                 status,
             });
         }
-        out.sort_by(|a, b| a.capture_id.cmp(&b.capture_id));
+        out.sort_by(|a, b| {
+            a.capture_id
+                .cmp(&b.capture_id)
+                .then_with(|| a.status.cmp(b.status))
+        });
         Ok(out)
     }
     pub fn download(&self, id: &str) -> io::Result<Vec<u8>> {
@@ -502,11 +535,19 @@ impl Diagnostics {
             return Err(conflict());
         }
         for capture in &captures {
-            // Recheck ownership and links immediately before each deletion.
-            self.owned_file(&capture.capture_id)?;
+            // Recheck the exact file kind immediately before each deletion.
+            // A final JSONL and a pending entry with the same ID are two files
+            // and require two confirmed entries; neither shadows the other.
+            let extension = if capture.status == "startup_incomplete" {
+                self.pending_metadata(&capture.capture_id)?;
+                "pending"
+            } else {
+                self.owned_file(&capture.capture_id)?;
+                "jsonl"
+            };
             fs::remove_file(
                 self.directory
-                    .join(format!("capture-{}.jsonl", capture.capture_id)),
+                    .join(format!("capture-{}.{extension}", capture.capture_id)),
             )?;
         }
         Ok(captures.len())
@@ -752,25 +793,101 @@ mod tests {
     }
 
     #[test]
-    fn abandoned_staging_is_not_misidentified_as_user_capture_history() {
+    fn crash_left_staging_is_listed_and_count_confirmed_without_reading_contents() {
         let sandbox = Sandbox::new();
         fs::create_dir_all(&sandbox.0).unwrap();
-        let empty = sandbox
+        let ids = [
+            "00000000000000000000000000000000",
+            "11111111111111111111111111111111",
+            "22222222222222222222222222222222",
+        ];
+        let full_header = json!({
+            "schema_version": 1, "source": "host", "capture_id": ids[2],
+            "sequence": 1, "event": "capture_started"
+        })
+        .to_string();
+        for (id, bytes) in ids.iter().zip([
+            b"".as_slice(),
+            b"{\"schema_version\":".as_slice(),
+            full_header.as_bytes(),
+        ]) {
+            fs::write(sandbox.0.join(format!("capture-{id}.pending")), bytes).unwrap();
+        }
+        let mut d = sandbox.store();
+        assert!(d.active_id().is_none());
+        let listed = d.list().unwrap();
+        assert_eq!(listed.len(), 3);
+        assert!(listed.iter().all(|c| c.status == "startup_incomplete"));
+        assert_eq!(listed[0].bytes, 0);
+        for id in ids {
+            assert!(
+                d.download(id).is_err(),
+                "pending is never a download fallback"
+            );
+        }
+        assert!(d.purge(2).is_err());
+        assert_eq!(d.list().unwrap().len(), 3);
+        assert_eq!(d.purge(3).unwrap(), 3);
+        assert!(d.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn pending_namespace_is_exact_and_user_jsonl_is_untouched() {
+        let sandbox = Sandbox::new();
+        fs::create_dir_all(&sandbox.0).unwrap();
+        let names = [
+            "capture-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.pending",
+            "capture-0000000000000000000000000000000.pending",
+            "capture-000000000000000000000000000000000.pending",
+            "capture-gggggggggggggggggggggggggggggggg.pending",
+            "capture-00000000000000000000000000000000.pending.extra",
+            "capture-00000000000000000000000000000000.PENDING",
+            "notes.pending",
+            "notes.jsonl",
+            "capture-33333333333333333333333333333333.jsonl",
+        ];
+        for name in names {
+            fs::write(sandbox.0.join(name), b"user-owned data").unwrap();
+        }
+        let directory = sandbox
             .0
-            .join("capture-00000000000000000000000000000000.pending");
-        let partial = sandbox
+            .join("capture-44444444444444444444444444444444.pending");
+        fs::create_dir(&directory).unwrap();
+        let valid = sandbox
             .0
-            .join("capture-11111111111111111111111111111111.pending");
-        fs::write(&empty, b"").unwrap();
-        fs::write(&partial, b"{\"schema_version\":").unwrap();
+            .join("capture-55555555555555555555555555555555.pending");
+        fs::write(&valid, b"arbitrary partial staging data").unwrap();
+        let mut d = sandbox.store();
+        assert_eq!(d.list().unwrap().len(), 1);
+        assert_eq!(d.purge(1).unwrap(), 1);
+        assert!(!valid.exists());
+        assert!(directory.is_dir());
+        for name in names {
+            assert_eq!(fs::read(sandbox.0.join(name)).unwrap(), b"user-owned data");
+        }
+    }
+
+    #[test]
+    fn published_and_pending_same_id_remain_separate_confirmed_entries() {
+        let sandbox = Sandbox::new();
         let mut d = sandbox.store();
         let id = d.start().unwrap();
         d.stop(StopReason::User).unwrap();
-        assert_eq!(d.list().unwrap().len(), 1);
-        assert_eq!(d.purge(1).unwrap(), 1);
-        assert!(empty.exists());
-        assert!(partial.exists());
-        assert!(d.download(&id).is_err());
+        let final_path = sandbox.0.join(format!("capture-{id}.jsonl"));
+        let pending_path = sandbox.0.join(format!("capture-{id}.pending"));
+        // Publication uses hard_link; this models a crash before unlinking staging.
+        fs::hard_link(&final_path, &pending_path).unwrap();
+        let original = fs::read(&final_path).unwrap();
+        let listed = d.list().unwrap();
+        assert_eq!(listed.len(), 2);
+        assert!(listed.iter().all(|c| c.capture_id == id));
+        assert!(listed.iter().any(|c| c.status == "startup_incomplete"));
+        assert!(listed.iter().any(|c| c.status == "stopped"));
+        assert_eq!(d.download(&id).unwrap(), original);
+        assert!(d.purge(1).is_err());
+        assert!(final_path.exists() && pending_path.exists());
+        assert_eq!(d.purge(2).unwrap(), 2);
+        assert!(!final_path.exists() && !pending_path.exists());
     }
 
     #[cfg(unix)]
@@ -794,6 +911,45 @@ mod tests {
         assert!(linked.store().start().is_err());
         // Remove the link itself, never recursively traverse it in cleanup.
         fs::remove_file(&linked.0).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_links_are_excluded_and_external_targets_survive_purge() {
+        use std::os::unix::fs::symlink;
+        let target = Sandbox::new();
+        fs::create_dir_all(&target.0).unwrap();
+        let target_file = target.0.join("synthetic-target");
+        fs::write(&target_file, b"preserve target").unwrap();
+        let sandbox = Sandbox::new();
+        fs::create_dir_all(&sandbox.0).unwrap();
+        let linked_file = sandbox
+            .0
+            .join("capture-66666666666666666666666666666666.pending");
+        let linked_dir = sandbox
+            .0
+            .join("capture-77777777777777777777777777777777.pending");
+        symlink(&target_file, &linked_file).unwrap();
+        symlink(&target.0, &linked_dir).unwrap();
+        let pending = sandbox
+            .0
+            .join("capture-88888888888888888888888888888888.pending");
+        fs::write(&pending, b"").unwrap();
+        let mut d = sandbox.store();
+        assert!(d
+            .pending_metadata("66666666666666666666666666666666")
+            .is_err());
+        assert!(d
+            .pending_metadata("77777777777777777777777777777777")
+            .is_err());
+        assert_eq!(d.list().unwrap().len(), 1);
+        assert!(d.purge(3).is_err());
+        assert_eq!(d.purge(1).unwrap(), 1);
+        assert!(fs::symlink_metadata(&linked_file).is_ok());
+        assert!(fs::symlink_metadata(&linked_dir).is_ok());
+        assert_eq!(fs::read(&target_file).unwrap(), b"preserve target");
+        fs::remove_file(linked_file).unwrap();
+        fs::remove_file(linked_dir).unwrap();
     }
 
     #[cfg(windows)]
@@ -838,6 +994,23 @@ mod tests {
             fs::symlink_metadata(&alias).unwrap().file_attributes() & 0x400,
             0
         );
+        let pending_alias = sandbox.0.join(format!("capture-{target_id}.pending"));
+        if !supported(symlink_file(&target_path, &pending_alias)) {
+            fs::remove_file(&alias).unwrap();
+            return;
+        }
+        let pending_dir = sandbox
+            .0
+            .join("capture-99999999999999999999999999999999.pending");
+        if !supported(symlink_dir(&target.0, &pending_dir)) {
+            fs::remove_file(&pending_alias).unwrap();
+            fs::remove_file(&alias).unwrap();
+            return;
+        }
+        assert!(d.pending_metadata(&target_id).is_err());
+        assert!(d
+            .pending_metadata("99999999999999999999999999999999")
+            .is_err());
         assert!(d.download(&target_id).is_err());
         let listed = d.list().unwrap();
         assert_eq!(listed.len(), 1);
@@ -845,10 +1018,14 @@ mod tests {
         assert!(d.purge(2).is_err());
         assert_eq!(d.purge(1).unwrap(), 1);
         assert!(fs::symlink_metadata(&alias).is_ok());
+        assert!(fs::symlink_metadata(&pending_alias).is_ok());
+        assert!(fs::symlink_metadata(&pending_dir).is_ok());
         assert!(d.list().unwrap().is_empty());
         assert_eq!(d.purge(0).unwrap(), 0);
         assert_eq!(fs::read(&target_path).unwrap(), original);
         fs::remove_file(&alias).unwrap();
+        fs::remove_file(&pending_alias).unwrap();
+        fs::remove_dir(&pending_dir).unwrap();
 
         let linked = Sandbox::new();
         if !supported(symlink_dir(&target.0, &linked.0)) {
