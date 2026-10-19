@@ -15,8 +15,10 @@ try {
     $report = Get-Content -Raw $reportPath | ConvertFrom-Json
     Assert ($report.stop_observations.Count -eq 1) 'Expected one stop observation'
     Assert ($report.stop_observations[0].delta_ms -eq 150) 'Threshold equality must not count as below threshold'
-    Assert ($report.timeline.Count -eq 10) 'Only matching valid rows belong in timeline'
-    Assert ($report.raw_lines.Count -eq 13) 'All raw lines must remain'
+    $timelineDetails = @($report.timeline | ForEach-Object { "$($_.input_index):$($_.line_number):$($_.record.source):$($_.record.sequence)" }) -join ','
+    $rowDetails = @($report.raw_lines | ForEach-Object { "$($_.input_index):$($_.line_number):$($_.status):$($_.issue)" }) -join ','
+    Assert ($report.timeline.Count -eq 10) "Only matching valid rows belong in timeline: expected=10 actual=$($report.timeline.Count); timeline=[$timelineDetails]; raw=[$rowDetails]; warnings=[$($report.warnings -join ',')]"
+    Assert ($report.raw_lines.Count -eq 13) "All raw lines must remain: expected=13 actual=$($report.raw_lines.Count); raw=[$rowDetails]"
     Assert (@($report.raw_lines | Where-Object { $_.status -eq 'invalid' }).Count -eq 2) 'Malformed lines must be reported'
     Assert (@($report.raw_lines | Where-Object { $_.status -eq 'unmatched' }).Count -eq 1) 'Capture mismatch must remain visible'
     Assert ($report.warnings -contains 'unterminated_final_line:3:3') 'Truncation warning missing'
