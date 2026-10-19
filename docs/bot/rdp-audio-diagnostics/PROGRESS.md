@@ -10,8 +10,8 @@
 
 | Stage | Owner | State | Evidence / next step |
 |---|---|---|---|
-| Instruction | local | published | Initial instruction commit `fa89fe0`; final instruction revision will be linked from the Issue. |
-| Implementation | dots | preparing dispatch | Send fixed README and Issue URL to the configured Dots recipient. |
+| Instruction | local | published | Fixed README, FACTS and REVIEW at commit `6e6efe4`; Issue body links the fixed revision. |
+| Implementation | dots | sent; awaiting acknowledgement | Dispatch and read-back recorded in [Issue comment](https://github.com/ishizakahiroshi/RemoteAudio/issues/3#issuecomment-6266822448). |
 | Independent review | local subagent | pending | Review exact implementation SHA after submission. |
 | Local acceptance | local | pending | Run tests/build and browser/source review; physical host audio check remains user-side. |
 
