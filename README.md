@@ -170,6 +170,15 @@ POST /api/volume   {"muted": true}
 cannot clobber a level someone changed in Windows a moment earlier. The
 bearer-token, Host-header, allowlist and same-origin checks all apply.
 
+## RDP audio diagnostics
+
+The optional diagnostics panel captures bounded, local metadata logs for comparing
+manual stop markers with host-wide output peaks and optional guest RDP counters.
+It does not record audio or establish the cause of a delay. Capture starts only
+when you explicitly enable it. See the [English guide](docs/rdp-audio-diagnostics.en.md)
+or [日本語ガイド](docs/rdp-audio-diagnostics.ja.md) for capture, download, guest
+collection, analysis, and count-confirmed deletion.
+
 ## Start at logon
 
 Register the current executable in the per-user HKCU Run key:

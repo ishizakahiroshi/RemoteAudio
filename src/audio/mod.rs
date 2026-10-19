@@ -6,7 +6,7 @@
 use windows::core::PWSTR;
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Foundation::{BOOL, E_INVALIDARG, E_UNEXPECTED};
-use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+use windows::Win32::Media::Audio::Endpoints::{IAudioEndpointVolume, IAudioMeterInformation};
 use windows::Win32::Media::Audio::{
     eCommunications, eConsole, eMultimedia, eRender, ERole, IMMDevice, IMMDeviceEnumerator,
     MMDeviceEnumerator, DEVICE_STATE, DEVICE_STATE_ACTIVE, DEVICE_STATE_DISABLED,
@@ -341,6 +341,49 @@ pub fn get_master_volume() -> Result<MasterVolume> {
     let _com = ComGuard::new()?;
     let (id, endpoint) = default_multimedia_volume()?;
     read_master_volume(id, &endpoint)
+}
+
+/// One instantaneous aggregate output reading. Endpoint identity is only used
+/// in memory to allocate a capture-local anonymous slot by the recorder.
+pub struct OutputSample {
+    pub acquired: std::time::Instant,
+    pub acquired_utc_ms: u64,
+    pub endpoint_id: String,
+    pub peak: f32,
+    pub volume: f32,
+    pub muted: bool,
+}
+
+pub fn sample_output() -> Result<OutputSample> {
+    let _com = ComGuard::new()?;
+    let enumerator = create_enumerator()?;
+    let device = wrap("GetDefaultAudioEndpoint(eRender, eMultimedia)", unsafe {
+        enumerator.GetDefaultAudioEndpoint(eRender, eMultimedia)
+    })?;
+    let id = device_id(&device)?;
+    let meter = wrap("IMMDevice::Activate(IAudioMeterInformation)", unsafe {
+        device.Activate::<IAudioMeterInformation>(CLSCTX_ALL, None)
+    })?;
+    let endpoint = wrap("IMMDevice::Activate(IAudioEndpointVolume)", unsafe {
+        device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)
+    })?;
+    let peak = wrap("IAudioMeterInformation::GetPeakValue", unsafe {
+        meter.GetPeakValue()
+    })?;
+    let acquired = std::time::Instant::now();
+    let acquired_utc_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let state = read_master_volume(id, &endpoint)?;
+    Ok(OutputSample {
+        acquired,
+        acquired_utc_ms,
+        endpoint_id: state.device_id,
+        peak,
+        volume: state.level,
+        muted: state.muted,
+    })
 }
 
 /// Apply exactly the master-volume fields the caller passed and return the

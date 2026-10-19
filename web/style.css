@@ -276,3 +276,21 @@ body {
   body { font-size: 15px; }
   .card { min-height: 56px; }
 }
+
+/* Opt-in diagnostic capture: keep long anonymous IDs usable on narrow screens. */
+.diagnostics-panel {
+  background: var(--card); border: 2px solid var(--ink); border-radius: 14px;
+  padding: 14px; margin-top: 24px;
+}
+.diagnostics-panel h2 { margin: 0; font-size: 1rem; }
+.diagnostics-panel h3 { margin: 18px 0 6px; font-size: 0.9rem; }
+.diagnostics-panel p { font-size: 0.82rem; margin: 8px 0; }
+.diagnostics-state, .diagnostics-id { overflow-wrap: anywhere; }
+.diagnostics-state { font-weight: 700; }
+.diagnostics-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.diagnostics-panel .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.diagnostics-list { list-style: none; padding: 0; margin: 0; }
+.diagnostics-list li { padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.8rem; }
+.diagnostics-list span { display: block; }
+.diagnostics-id { font-family: ui-monospace, monospace; }
+.diagnostics-panel .diagnostics-danger { color: var(--bad); border-color: var(--bad); }
