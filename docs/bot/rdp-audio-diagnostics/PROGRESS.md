@@ -11,7 +11,7 @@
 | Stage | Owner | State | Evidence / next step |
 |---|---|---|---|
 | Instruction | local | published | Fixed README, FACTS and REVIEW at commit `6e6efe4`; Issue body links the fixed revision. |
-| Implementation | dots | sent; awaiting acknowledgement | Dispatch and read-back recorded in [Issue comment](https://github.com/ishizakahiroshi/RemoteAudio/issues/3#issuecomment-6266822448). |
+| Implementation | dots | accepted; branch-tip check pending | Acceptance and environment self-report recorded in [Issue comment](https://github.com/ishizakahiroshi/RemoteAudio/issues/3#issuecomment-6266862966). |
 | Independent review | local subagent | pending | Review exact implementation SHA after submission. |
 | Local acceptance | local | pending | Run tests/build and browser/source review; physical host audio check remains user-side. |
 
