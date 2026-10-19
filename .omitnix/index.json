@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated": {
-    "commit": "8f3a1b29eea3dea361d37fb809815160e918f746",
+    "commit": "1f74eaa2d17dd521e2472a3842267bb1d87fbccf",
     "dirty": true,
     "tool": "omitnix 0.1.3",
     "partial": false,
@@ -138,11 +138,11 @@
     "discovery_note": ""
   },
   "coverage": {
-    "discovered": 76,
+    "discovered": 80,
     "analyzed": 32,
     "unresolved": 1,
     "unknown": 0,
-    "unclaimed": 43,
+    "unclaimed": 47,
     "skipped_by_config": 0
   },
   "files": [
@@ -348,6 +348,38 @@
         }
       },
       "unresolved": []
+    },
+    {
+      "path": "docs/bot/rdp-audio-diagnostics/FACTS.md",
+      "adapter": null,
+      "status": "unclaimed",
+      "fields": {},
+      "unresolved": [],
+      "reason": "no adapter claims '.md'"
+    },
+    {
+      "path": "docs/bot/rdp-audio-diagnostics/PROGRESS.md",
+      "adapter": null,
+      "status": "unclaimed",
+      "fields": {},
+      "unresolved": [],
+      "reason": "no adapter claims '.md'"
+    },
+    {
+      "path": "docs/bot/rdp-audio-diagnostics/README.md",
+      "adapter": null,
+      "status": "unclaimed",
+      "fields": {},
+      "unresolved": [],
+      "reason": "no adapter claims '.md'"
+    },
+    {
+      "path": "docs/bot/rdp-audio-diagnostics/REVIEW.md",
+      "adapter": null,
+      "status": "unclaimed",
+      "fields": {},
+      "unresolved": [],
+      "reason": "no adapter claims '.md'"
     },
     {
       "path": "doxguard.ci.json",
