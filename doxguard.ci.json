@@ -1,0 +1,26 @@
+{
+  "watchlists": [],
+  "structural": {
+    "windowsPath": true,
+    "posixHome": true,
+    "privateIp": true,
+    "email": true
+  },
+  "allow": {
+    "emails": [
+      "ishizakahiroshi.dev\u0040gmail.com",
+      "excavator@users.noreply.github.com"
+    ],
+    "emailDomains": [
+      "example.com",
+      "example.net",
+      "example.org",
+      "example.invalid"
+    ],
+    "disallowBareAllow": true
+  },
+  "exemptPaths": [],
+  "includeDefaultExemptPaths": false,
+  "requireWatchlists": false,
+  "failOnSkip": true
+}
