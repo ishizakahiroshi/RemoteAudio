@@ -127,7 +127,20 @@ try {
             if ($readErrors.Count -gt 0 -and @($readErrors | Where-Object { $_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*' }).Count -gt 0) { throw 'event_read_failed' }
             Set-State 'rdp_events' 'available'
             foreach ($entry in $events) {
-                if ($entry.TimeCreated.ToUniversalTime() -lt $startedUtc) { $lastRecord = [long]$entry.RecordId; continue }
+                $eventTimeUtc = $null
+                try {
+                    $eventTime = $entry.TimeCreated
+                    if ($null -eq $eventTime) { throw 'event_time_unavailable' }
+                    $eventTimeUtc = $eventTime.ToUniversalTime()
+                } catch {
+                    # The timestamp is nullable and can fail independently of XML.
+                    # Record only a fixed gap, then advance past the bad record.
+                    Write-Record 'collector_gap' @{ component = 'rdp_events'; reason = 'event_time_unavailable' }
+                    $lastRecord = [long]$entry.RecordId
+                    if ($script:limitReached) { break }
+                    continue
+                }
+                if ($eventTimeUtc -lt $startedUtc) { $lastRecord = [long]$entry.RecordId; continue }
                 try { $xml = [xml]$entry.ToXml() } catch {
                     # Expose lost conversion evidence before advancing past this
                     # record; never persist the XML or exception description.
@@ -145,7 +158,7 @@ try {
                     if ($channels.ContainsKey($value)) { $matched[$channels[$value]] = $true }
                 }
                 foreach ($channel in $matched.Keys) {
-                    Write-Record 'rdp_audio_channel' @{ channel = $channel; event_id = [int]$entry.Id; event_utc_unix_ms = ([DateTimeOffset]$entry.TimeCreated.ToUniversalTime()).ToUnixTimeMilliseconds() }
+                    Write-Record 'rdp_audio_channel' @{ channel = $channel; event_id = [int]$entry.Id; event_utc_unix_ms = ([DateTimeOffset]$eventTimeUtc).ToUnixTimeMilliseconds() }
                 }
                 $lastRecord = [long]$entry.RecordId
                 if ($script:limitReached) { break }

@@ -220,6 +220,47 @@ try {
     Assert (@($conversionRecords | Where-Object { $_.event -eq 'collector_gap' -and $_.reason -eq 'event_parse_failed' }).Count -eq 2) 'Both failed event conversions must leave explicit gaps'
     Assert (@($conversionRecords | Where-Object { $_.event -eq 'rdp_audio_channel' }).Count -eq 1) 'Later valid event must survive earlier conversion failures'
     Assert (-not $conversionRaw.Contains('synthetic-do-not-copy')) 'Conversion exception or malformed XML leaked'
+    # Null and throwing timestamps must leave fixed gaps, advance the cursor, and
+    # allow the later valid event through without persisting exception text.
+    $timeGapMock = @{ initialized = $false; cursors = @() }
+    function Get-WinEvent {
+        [CmdletBinding()]param($ListLog, $LogName, $MaxEvents, $FilterXPath, [switch]$Oldest)
+        if ($ListLog) { return [pscustomobject]@{ IsEnabled = $true } }
+        if (-not $FilterXPath) {
+            if ($Oldest) { return [pscustomobject]@{ RecordId = 1 } }
+            if (-not $timeGapMock.initialized) { $timeGapMock.initialized = $true; return [pscustomobject]@{ RecordId = 1 } }
+            return [pscustomobject]@{ RecordId = 4 }
+        }
+        $cursorMatch = [regex]::Match($FilterXPath, 'EventRecordID > (\d+)')
+        if (-not $cursorMatch.Success) { throw 'synthetic_cursor_missing' }
+        $cursor = [long]$cursorMatch.Groups[1].Value
+        $timeGapMock.cursors += $cursor
+        if ($cursor -lt 2) {
+            $nullTime = [pscustomobject]@{ RecordId = 2; Id = 132; TimeCreated = $null }
+            $nullTime | Add-Member ScriptMethod ToXml { throw 'synthetic-null-time-xml-secret' }
+            return $nullTime
+        }
+        if ($cursor -lt 3) {
+            $throwingTime = [pscustomobject]@{ RecordId = 3; Id = 132 }
+            $throwingTime | Add-Member -MemberType ScriptProperty -Name TimeCreated -Value { throw 'synthetic-time-getter-secret' }
+            $throwingTime | Add-Member ScriptMethod ToXml { throw 'synthetic-throwing-time-xml-secret' }
+            return $throwingTime
+        }
+        if ($cursor -lt 4) {
+            $valid = [pscustomobject]@{ RecordId = 4; Id = 132; TimeCreated = [DateTime]::UtcNow }
+            $valid | Add-Member ScriptMethod ToXml { '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><EventData><Data Name="ChannelName">rdpsnd</Data></EventData></Event>' }
+            return $valid
+        }
+    }
+    $timeGapPath = Join-Path $temp 'time-gap.jsonl'
+    & (Join-Path $root 'scripts/collect-rdp-audio-diagnostics.ps1') -CaptureId $id -OutputPath $timeGapPath -DurationSeconds 4
+    $timeGapRaw = [IO.File]::ReadAllText($timeGapPath)
+    $timeGapRecords = @(Get-Content $timeGapPath | ForEach-Object { $_ | ConvertFrom-Json })
+    $timeGaps = @($timeGapRecords | Where-Object { $_.event -eq 'collector_gap' -and $_.reason -eq 'event_time_unavailable' })
+    Assert ($timeGaps.Count -eq 2) 'Null and throwing event timestamps must each leave a fixed gap'
+    Assert (@($timeGapRecords | Where-Object { $_.event -eq 'rdp_audio_channel' -and $_.event_id -eq 132 }).Count -eq 1) 'Later valid event must survive null and throwing timestamps'
+    Assert (($timeGapMock.cursors -contains 2) -and ($timeGapMock.cursors -contains 3) -and ($timeGapMock.cursors -contains 4)) 'Each timestamp gap must advance the cursor after recording'
+    Assert (-not $timeGapRaw.Contains('synthetic-null-time-xml-secret') -and -not $timeGapRaw.Contains('synthetic-time-getter-secret') -and -not $timeGapRaw.Contains('synthetic-throwing-time-xml-secret')) 'Timestamp exception details leaked'
     # The English and Japanese tables share numeric indices, never guessed names.
     $syntheticLocale = 'en'
     function Get-ItemProperty {
