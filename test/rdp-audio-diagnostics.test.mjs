@@ -17,6 +17,7 @@ function invoke(script, args = []) {
 test('synthetic diagnostics fixtures follow the shared numeric envelope and monotonic order', () => {
   for (const source of ['host', 'guest']) {
     const rows = fs.readFileSync(path.join(fixtures, `${source}.jsonl.fixture`), 'utf8').trimEnd().split('\n').map(JSON.parse);
+    assert.equal(rows[0].sequence, source === 'host' ? 1 : 0);
     let previous = -1, elapsed = -1;
     for (const row of rows) {
       assert.equal(row.schema_version, 1);

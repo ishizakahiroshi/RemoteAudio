@@ -8,7 +8,9 @@ $temp = Join-Path ([IO.Path]::GetTempPath()) ('rdp-diagnostic-test-' + [Guid]::N
 $id = '0123456789abcdef0123456789abcdef'
 function Assert($Condition, [string]$Message) { if (-not $Condition) { throw $Message } }
 try {
-    $inputs = @((Join-Path $fixtures 'host.jsonl.fixture'), (Join-Path $fixtures 'guest.jsonl.fixture'), (Join-Path $fixtures 'damaged.jsonl.fixture'))
+    $combinedGuest = Join-Path $temp 'guest-with-damage.jsonl'
+    [IO.File]::WriteAllBytes($combinedGuest, [byte[]]([IO.File]::ReadAllBytes((Join-Path $fixtures 'guest.jsonl.fixture')) + [IO.File]::ReadAllBytes((Join-Path $fixtures 'damaged.jsonl.fixture'))))
+    $inputs = @((Join-Path $fixtures 'host.jsonl.fixture'), $combinedGuest)
     $original = @($inputs | ForEach-Object { [Convert]::ToBase64String([IO.File]::ReadAllBytes($_)) })
     $reportPath = Join-Path $temp 'report.json'
     & (Join-Path $root 'scripts/analyze-rdp-audio-diagnostics.ps1') -InputPath $inputs -CaptureId $id -OutputPath $reportPath
@@ -21,11 +23,22 @@ try {
     Assert ($report.raw_lines.Count -eq 13) "All raw lines must remain: expected=13 actual=$($report.raw_lines.Count); raw=[$rowDetails]"
     Assert (@($report.raw_lines | Where-Object { $_.status -eq 'invalid' }).Count -eq 2) 'Malformed lines must be reported'
     Assert (@($report.raw_lines | Where-Object { $_.status -eq 'unmatched' }).Count -eq 1) 'Capture mismatch must remain visible'
-    Assert ($report.warnings -contains 'unterminated_final_line:3:3') 'Truncation warning missing'
+    Assert ($report.warnings -contains 'unterminated_final_line:2:7') 'Truncation warning missing'
     for ($i = 0; $i -lt $inputs.Count; $i++) {
         Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($inputs[$i])) -eq $original[$i]) 'Input changed'
         Assert ($report.raw_inputs[$i].base64 -eq $original[$i]) 'Exact input bytes were not preserved'
     }
+    Assert ($report.raw_lines[0].status -eq 'matched') 'BOM-less first host line must retain its opening brace'
+    Assert ($report.raw_lines[6].status -eq 'matched') 'BOM-less first guest line must retain its opening brace'
+    $bomPath = Join-Path $temp 'bom-host.jsonl'
+    $hostBytes = [IO.File]::ReadAllBytes($inputs[0])
+    $bomBytes = [byte[]](@(0xEF, 0xBB, 0xBF) + $hostBytes)
+    [IO.File]::WriteAllBytes($bomPath, $bomBytes)
+    & (Join-Path $root 'scripts/analyze-rdp-audio-diagnostics.ps1') -InputPath $bomPath -CaptureId $id -OutputPath (Join-Path $temp 'bom-report.json')
+    $bomReport = Get-Content -Raw (Join-Path $temp 'bom-report.json') | ConvertFrom-Json
+    Assert ($bomReport.timeline.Count -eq 6) "BOM-prefixed host must retain all rows: expected=6 actual=$($bomReport.timeline.Count)"
+    Assert ($bomReport.raw_lines[0].status -eq 'matched') 'BOM first host line must parse'
+    Assert ($bomReport.raw_inputs[0].base64 -eq [Convert]::ToBase64String($bomBytes)) 'Original BOM bytes must be preserved'
     $broken = Join-Path $temp 'broken.jsonl'
     [IO.File]::WriteAllBytes($broken, [byte[]]@(123, 34, 195))
     & (Join-Path $root 'scripts/analyze-rdp-audio-diagnostics.ps1') -InputPath $broken -CaptureId $id -OutputPath (Join-Path $temp 'broken-report.json')
@@ -35,9 +48,9 @@ try {
 
     # Delayed marker serialization must not hide a sample after handler arrival.
     $interleaved = @(
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 0; utc_unix_ms = 946684800000; elapsed_ms = 0; event = 'capture_started' },
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 1; utc_unix_ms = 946684800200; elapsed_ms = 200; acquired_elapsed_ms = 200; acquired_utc_unix_ms = 946684800200; event = 'meter_sample'; peak = 0.001 },
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 2; utc_unix_ms = 946684800400; elapsed_ms = 400; event = 'marker'; marker = 'stop_pressed'; received_elapsed_ms = 150; received_utc_unix_ms = 946684800150 }
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 1; utc_unix_ms = 946684800000; elapsed_ms = 0; event = 'capture_started' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 2; utc_unix_ms = 946684800200; elapsed_ms = 200; acquired_elapsed_ms = 200; acquired_utc_unix_ms = 946684800200; event = 'meter_sample'; peak = 0.001 },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 3; utc_unix_ms = 946684800400; elapsed_ms = 400; event = 'marker'; marker = 'stop_pressed'; received_elapsed_ms = 150; received_utc_unix_ms = 946684800150 }
     )
     $interleavedPath = Join-Path $temp 'interleaved.jsonl'
     [IO.File]::WriteAllText($interleavedPath, (($interleaved | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join "`n") + "`n")
@@ -46,7 +59,7 @@ try {
     Assert ($interleavedReport.stop_observations[0].delta_ms -eq 50) 'Handler-arrival marker interleaving must be respected'
     Assert ($interleavedReport.warnings -contains 'guest_missing') 'Missing guest must be explicit'
     Assert ($interleavedReport.warnings -contains 'capture_interrupted_or_incomplete:host') 'Interrupted capture must be explicit'
-    $interleaved += @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 3; utc_unix_ms = 946684800500; elapsed_ms = 500; event = 'marker'; marker = 'playback_started'; received_elapsed_ms = 175 }
+    $interleaved += @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 4; utc_unix_ms = 946684800500; elapsed_ms = 500; event = 'marker'; marker = 'playback_started'; received_elapsed_ms = 175 }
     [IO.File]::WriteAllText($interleavedPath, (($interleaved | ForEach-Object { $_ | ConvertTo-Json -Compress }) -join "`n") + "`n")
     & (Join-Path $root 'scripts/analyze-rdp-audio-diagnostics.ps1') -InputPath $interleavedPath -CaptureId $id -OutputPath (Join-Path $temp 'restart-report.json')
     $restartReport = Get-Content -Raw (Join-Path $temp 'restart-report.json') | ConvertFrom-Json
@@ -61,9 +74,9 @@ try {
         return (Get-Content -Raw $outputFile | ConvertFrom-Json)
     }
     $stale = @(
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 0; utc_unix_ms = 946684800000; elapsed_ms = 0; event = 'capture_started' },
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 1; utc_unix_ms = 946684800400; elapsed_ms = 400; received_elapsed_ms = 200; event = 'marker'; marker = 'stop_pressed' },
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 2; utc_unix_ms = 946684800500; elapsed_ms = 500; acquired_elapsed_ms = 100; event = 'meter_sample'; peak = 0.001 }
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 1; utc_unix_ms = 946684800000; elapsed_ms = 0; event = 'capture_started' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 2; utc_unix_ms = 946684800400; elapsed_ms = 400; received_elapsed_ms = 200; event = 'marker'; marker = 'stop_pressed' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 3; utc_unix_ms = 946684800500; elapsed_ms = 500; acquired_elapsed_ms = 100; event = 'meter_sample'; peak = 0.001 }
     )
     $staleReport = Analyze-Synthetic $stale 'stale-acquisition'
     Assert ($null -eq $staleReport.stop_observations[0].delta_ms) 'Pre-stop acquisition must not count even when appended later'
@@ -76,18 +89,45 @@ try {
     Assert ($missingTimeReport.warnings -contains 'missing_acquired_time:1:3') 'Missing acquisition must not use append time'
     Assert ($null -eq $missingTimeReport.stop_observations[0].delta_ms) 'Missing acquisition must not fabricate latency'
     $arrivalOrder = @(
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 0; utc_unix_ms = 946684800000; elapsed_ms = 0; event = 'capture_started' },
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 2; utc_unix_ms = 946684800300; elapsed_ms = 300; received_elapsed_ms = 250; event = 'marker'; marker = 'playback_started' },
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 3; utc_unix_ms = 946684800400; elapsed_ms = 400; received_elapsed_ms = 150; event = 'marker'; marker = 'stop_pressed' },
-        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 4; utc_unix_ms = 946684800450; elapsed_ms = 450; acquired_elapsed_ms = 450; event = 'meter_sample'; peak = 0.001 }
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 1; utc_unix_ms = 946684800000; elapsed_ms = 0; event = 'capture_started' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 2; utc_unix_ms = 946684800050; elapsed_ms = 50; event = 'marker'; marker = 'sound_stopped'; received_elapsed_ms = 50 },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 3; utc_unix_ms = 946684800300; elapsed_ms = 300; received_elapsed_ms = 250; event = 'marker'; marker = 'playback_started' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 4; utc_unix_ms = 946684800400; elapsed_ms = 400; received_elapsed_ms = 150; event = 'marker'; marker = 'stop_pressed' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 5; utc_unix_ms = 946684800450; elapsed_ms = 450; acquired_elapsed_ms = 450; event = 'meter_sample'; peak = 0.001 }
     )
     $arrivalReport = Analyze-Synthetic $arrivalOrder 'arrival-order'
     Assert ($arrivalReport.stop_observations[0].status -eq 'playback_restarted_before_threshold') 'Restart arrival must override earlier append sequence'
     Assert ($null -eq $arrivalReport.stop_observations[0].delta_ms) 'Post-restart acquisition must not count'
-    $arrivalOrder[2].received_elapsed_ms = 500
+    $arrivalOrder[3].received_elapsed_ms = 500
     $invalidMarkerReport = Analyze-Synthetic $arrivalOrder 'invalid-marker'
     Assert ($invalidMarkerReport.stop_observations[0].status -eq 'invalid_stop_time') 'Invalid present marker time must not silently fall back'
-    Assert ($invalidMarkerReport.warnings -contains 'invalid_received_time:1:3') 'Invalid marker time warning missing'
+    Assert ($invalidMarkerReport.warnings -contains 'invalid_received_time:1:4') 'Invalid marker time warning missing'
+
+    $sameMillisecond = @(
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 1; utc_unix_ms = 946684800000; elapsed_ms = 0; event = 'capture_started' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 2; utc_unix_ms = 946684800300; elapsed_ms = 300; received_elapsed_ms = 200; event = 'marker'; marker = 'stop_pressed' },
+        @{ schema_version = 1; source = 'host'; capture_id = $id; sequence = 3; utc_unix_ms = 946684800400; elapsed_ms = 400; acquired_elapsed_ms = 200; event = 'meter_sample'; peak = 0.001 }
+    )
+    $sameReport = Analyze-Synthetic $sameMillisecond 'same-millisecond'
+    Assert ($null -eq $sameReport.stop_observations[0].delta_ms) 'Same-ms acquisition must not be inferred later from append order'
+    Assert ($sameReport.warnings -contains 'same_millisecond_sample_excluded:2') 'Same-ms ambiguity warning missing'
+    $sameMillisecond[2].acquired_elapsed_ms = 250
+    $sameMillisecond[2].sequence = 4
+    $gapReport = Analyze-Synthetic $sameMillisecond 'sequence-gap'
+    Assert ($gapReport.warnings -contains 'sequence_gap:host:3') 'Missing host sequence must be detected'
+    Assert ($gapReport.stop_observations[0].status -eq 'incomplete_host_sequence') 'Host gaps must suppress latency'
+    Assert ($null -eq $gapReport.stop_observations[0].delta_ms) 'Host gap must not yield a numeric difference'
+    foreach ($limitCase in @('count', 'input_bytes', 'report_bytes')) {
+        $limitOutput = Join-Path $temp ('refused-' + $limitCase + '.json')
+        $arguments = @{ InputPath = @($inputs[0]); CaptureId = $id; OutputPath = $limitOutput }
+        if ($limitCase -eq 'count') { $arguments.InputPath = @($inputs[0], $inputs[0], $inputs[0]) }
+        if ($limitCase -eq 'input_bytes') { $arguments.MaxInputBytes = 16 }
+        if ($limitCase -eq 'report_bytes') { $arguments.MaxReportBytes = 16 }
+        $refused = $false
+        try { & (Join-Path $root 'scripts/analyze-rdp-audio-diagnostics.ps1') @arguments } catch { $refused = $true }
+        Assert $refused "Analyzer must refuse $limitCase limit"
+        Assert (-not [IO.File]::Exists($limitOutput)) "Analyzer must not create partial output for $limitCase limit"
+    }
 
     # No platform event log or counter cmdlets are invoked by these mocks.
     function Get-WinEvent {
@@ -95,12 +135,13 @@ try {
         if ($ListLog) { return [pscustomobject]@{ IsEnabled = $true } }
         if (-not $FilterXPath) { return [pscustomobject]@{ RecordId = 1 } }
         $entry = [pscustomobject]@{ RecordId = 2; Id = 132; TimeCreated = [DateTime]::UtcNow }
-        $entry | Add-Member ScriptMethod ToXml { '<Event><EventData><Data Name="ChannelName">rdpsnd</Data><Data Name="ClientAddress">synthetic-do-not-copy</Data><Data Name="UserName">synthetic-do-not-copy</Data></EventData></Event>' }
+        $entry | Add-Member ScriptMethod ToXml { '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><Provider Name="Microsoft-Windows-RemoteDesktopServices-RdpCoreTS"/><EventID>132</EventID></System><EventData><Data Name="ChannelName">rdpsnd</Data><Data Name="ClientAddress">synthetic-do-not-copy</Data><Data Name="UserName">synthetic-do-not-copy</Data></EventData></Event>' }
         $generic = [pscustomobject]@{ RecordId = 3; Id = 999; TimeCreated = [DateTime]::UtcNow }
         $generic | Add-Member ScriptMethod ToXml { '<Event><EventData><Data Name="UserName">rdpsnd</Data><Data Name="Other">AUDIO_PLAYBACK_DVC</Data></EventData></Event>' }
         return @($entry, $generic)
     }
-    function Get-Counter { [CmdletBinding()]param($Counter, $MaxSamples) throw 'synthetic missing counter' }
+    function Get-ItemProperty { [CmdletBinding()]param($LiteralPath, $Name) throw 'synthetic missing localization' }
+    function Get-Counter { [CmdletBinding()]param($Counter, $MaxSamples, $ListSet) throw 'synthetic missing counter' }
     $capture = Join-Path $temp 'guest.jsonl.fixture'
     & (Join-Path $root 'scripts/collect-rdp-audio-diagnostics.ps1') -CaptureId $id -OutputPath $capture -DurationSeconds 1
     $raw = [IO.File]::ReadAllText($capture)
@@ -120,5 +161,60 @@ try {
     Assert ((Get-Item $small).Length -le 4096) 'Size bound exceeded'
     Assert ($smallRecords[-1].event -eq 'capture_stopped') 'Size-limited capture must terminate cleanly'
     Assert ($smallRecords[-1].reason -eq 'size_limit') 'Size stop reason missing'
+    # Rollover retains newer IDs while losing unread events; a full batch means backlog.
+    $eventMock = @{ initialized = $false }
+    function Get-WinEvent {
+        [CmdletBinding()]param($ListLog, $LogName, $MaxEvents, $FilterXPath, [switch]$Oldest)
+        if ($ListLog) { return [pscustomobject]@{ IsEnabled = $true } }
+        if (-not $FilterXPath) {
+            if ($Oldest) { return [pscustomobject]@{ RecordId = 10 } }
+            if (-not $eventMock.initialized) { $eventMock.initialized = $true; return [pscustomobject]@{ RecordId = 1 } }
+            return [pscustomobject]@{ RecordId = 265 }
+        }
+        if ($FilterXPath.Contains('265')) { return }
+        foreach ($recordId in 10..265) {
+            $entry = [pscustomobject]@{ RecordId = $recordId; Id = 132; TimeCreated = [DateTime]::UtcNow }
+            $entry | Add-Member ScriptMethod ToXml { '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event"><System><EventID>132</EventID></System><EventData><Data Name="ChannelName">rdpsnd</Data><Data Name="UserName">synthetic-do-not-copy</Data></EventData></Event>' }
+            Write-Output $entry
+        }
+    }
+    $rolloverPath = Join-Path $temp 'rollover.jsonl'
+    & (Join-Path $root 'scripts/collect-rdp-audio-diagnostics.ps1') -CaptureId $id -OutputPath $rolloverPath -DurationSeconds 2
+    $rolloverRecords = @(Get-Content $rolloverPath | ForEach-Object { $_ | ConvertFrom-Json })
+    $gaps = @($rolloverRecords | Where-Object { $_.event -eq 'collector_gap' -and $_.reason -eq 'log_rollover' })
+    Assert ($gaps.Count -eq 1 -and $gaps[0].missing_record_count -eq 8) 'Rollover cursor gap must record eight missing headers exactly once'
+    Assert (@($rolloverRecords | Where-Object { $_.event -eq 'rdp_audio_channel' }).Count -eq 256) 'Namespaced channel records must parse without replaying consumed cursor'
+    Assert (@($rolloverRecords | Where-Object { $_.component -eq 'rdp_event_backlog' -and $_.state -eq 'pending' }).Count -eq 1) 'Full batch must signal backlog'
+    Assert (@($rolloverRecords | Where-Object { $_.component -eq 'rdp_event_backlog' -and $_.state -eq 'clear' }).Count -eq 1) 'Drained cursor must clear backlog'
+    # The English and Japanese tables share numeric indices, never guessed names.
+    $syntheticLocale = 'en'
+    function Get-ItemProperty {
+        [CmdletBinding()]param($LiteralPath, $Name)
+        if ($LiteralPath.EndsWith('\009') -or $syntheticLocale -eq 'en') { return [pscustomobject]@{ Counter = @('100', 'RemoteFX Network', '102', 'Current TCP RTT') } }
+        return [pscustomobject]@{ Counter = @('100', '合成ネットワーク', '102', '合成往復時間') }
+    }
+    function Get-Counter {
+        [CmdletBinding()]param($Counter, $MaxSamples, $ListSet)
+        $objectName = 'RemoteFX Network'; $counterName = 'Current TCP RTT'
+        if ($syntheticLocale -eq 'ja') { $objectName = '合成ネットワーク'; $counterName = '合成往復時間' }
+        if ($ListSet) {
+            if ($ListSet -cne $objectName) { throw 'unexpected_object' }
+            return [pscustomobject]@{ CounterSetName = $objectName; Paths = @('\' + $objectName + '(*)\' + $counterName) }
+        }
+        if ($Counter -cne ('\' + $objectName + '(*)\' + $counterName)) { throw 'unexpected_counter' }
+        return [pscustomobject]@{ CounterSamples = @([pscustomobject]@{ Status = 0; CookedValue = 12.5; InstanceName = 'synthetic-do-not-copy' }) }
+    }
+    foreach ($locale in @('en', 'ja')) {
+        $syntheticLocale = $locale
+        $localizedCapture = Join-Path $temp ('localized-' + $locale + '.jsonl')
+        & (Join-Path $root 'scripts/collect-rdp-audio-diagnostics.ps1') -CaptureId $id -OutputPath $localizedCapture -DurationSeconds 1
+        $localizedRaw = [IO.File]::ReadAllText($localizedCapture)
+        $localizedRecords = @(Get-Content $localizedCapture | ForEach-Object { $_ | ConvertFrom-Json })
+        $localizedSamples = @($localizedRecords | Where-Object { $_.event -eq 'counter_sample' -and $_.counter -eq 'tcp_rtt_ms' })
+        Assert ($localizedSamples.Count -ge 1) "Localized counter should resolve for $locale; actual sample count=$($localizedSamples.Count)"
+        Assert ($localizedSamples[0].mean -eq 12.5) 'Localized sample numeric value changed'
+        Assert (-not $localizedRaw.Contains('合成') -and -not $localizedRaw.Contains('RemoteFX Network') -and -not $localizedRaw.Contains('synthetic-do-not-copy')) 'Localized paths or instances leaked'
+    }
+    Assert (@($records | Where-Object { $_.component -eq 'counter_localization' -and $_.state -eq 'unavailable' }).Count -eq 1) 'Missing localization must be explicit'
     Write-Output 'Synthetic diagnostics checks passed.'
 } finally { [IO.Directory]::Delete($temp, $true) }

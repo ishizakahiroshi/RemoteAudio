@@ -152,6 +152,24 @@ impl Diagnostics {
         Ok(file)
     }
     pub fn start(&mut self) -> io::Result<String> {
+        self.start_with(
+            |capture, fields| {
+                Self::write_record(capture, "capture_started", fields)?;
+                capture.file.sync_data()
+            },
+            Self::publish_new,
+        )
+    }
+
+    fn publish_new(pending: &Path, published: &Path) -> io::Result<()> {
+        fs::hard_link(pending, published)
+    }
+
+    fn start_with(
+        &mut self,
+        initialize: impl FnOnce(&mut Capture, Value) -> io::Result<()>,
+        publish: impl FnOnce(&Path, &Path) -> io::Result<()>,
+    ) -> io::Result<String> {
         if self.active.is_some() {
             return Err(conflict());
         }
@@ -163,11 +181,13 @@ impl Diagnostics {
         getrandom::getrandom(&mut random)
             .map_err(|_| io::Error::other("capture ID unavailable"))?;
         let id: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let pending = self.directory.join(format!("capture-{id}.pending"));
+        let published = self.directory.join(format!("capture-{id}.jsonl"));
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(self.directory.join(format!("capture-{id}.jsonl")))?;
-        self.active = Some(Capture {
+            .open(&pending)?;
+        let mut capture = Capture {
             id: id.clone(),
             file,
             started: Instant::now(),
@@ -177,12 +197,28 @@ impl Diagnostics {
             meter_state: None,
             meter_busy: false,
             meter_invalid: false,
-        });
-        self.record(
-            "capture_started",
+        };
+        let initialized = initialize(
+            &mut capture,
             json!({"sample_interval_ms":100,"max_bytes":self.max_bytes,
             "max_duration_ms":self.max_duration.as_millis() as u64,"endpoint_role":"multimedia"}),
-        )?;
+        );
+        drop(capture.file);
+        if let Err(error) = initialized {
+            let _ = fs::remove_file(&pending);
+            return Err(error);
+        }
+        // Hard-link publication is atomic and never replaces an existing file.
+        // Unsupported filesystems fail closed instead of risking an overwrite.
+        if let Err(error) = publish(&pending, &published) {
+            let _ = fs::remove_file(&pending);
+            return Err(error);
+        }
+        // Do not append samples while a staging alias remains. A failure here
+        // leaves only the complete header, visible as an interrupted capture.
+        fs::remove_file(&pending)?;
+        capture.file = OpenOptions::new().append(true).open(&published)?;
+        self.active = Some(capture);
         Ok(id)
     }
     fn write_record(c: &mut Capture, event: &'static str, data: Value) -> io::Result<()> {
@@ -671,6 +707,72 @@ mod tests {
         assert!(sandbox.0.join("notes.jsonl").exists());
         assert!(sandbox.0.join(format!("capture-{foreign}.jsonl")).exists());
     }
+    #[test]
+    fn failed_initial_header_never_publishes_empty_or_partial_jsonl() {
+        for partial in [b"".as_slice(), b"{\"schema_version\":".as_slice()] {
+            let sandbox = Sandbox::new();
+            let mut d = sandbox.store();
+            let result = d.start_with(
+                |capture, _| {
+                    capture.file.write_all(partial)?;
+                    Err(io::Error::other("synthetic initial write failure"))
+                },
+                |_, _| panic!("failed header must not be published"),
+            );
+            assert!(result.is_err());
+            assert!(d.active_id().is_none());
+            assert!(d.list().unwrap().is_empty());
+            assert_eq!(fs::read_dir(&sandbox.0).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn failed_publication_cleans_only_its_staging_file_and_preserves_collision() {
+        let sandbox = Sandbox::new();
+        let mut d = sandbox.store();
+        let result = d.start_with(
+            |capture, fields| {
+                Diagnostics::write_record(capture, "capture_started", fields)?;
+                capture.file.sync_data()
+            },
+            |pending, published| {
+                fs::write(published, b"user-owned collision")?;
+                fs::hard_link(pending, published)
+            },
+        );
+        assert!(result.is_err());
+        assert!(d.active_id().is_none());
+        let entries: Vec<_> = fs::read_dir(&sandbox.0).unwrap().collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            fs::read(entries[0].as_ref().unwrap().path()).unwrap(),
+            b"user-owned collision"
+        );
+        assert_eq!(d.purge(0).unwrap(), 0);
+    }
+
+    #[test]
+    fn abandoned_staging_is_not_misidentified_as_user_capture_history() {
+        let sandbox = Sandbox::new();
+        fs::create_dir_all(&sandbox.0).unwrap();
+        let empty = sandbox
+            .0
+            .join("capture-00000000000000000000000000000000.pending");
+        let partial = sandbox
+            .0
+            .join("capture-11111111111111111111111111111111.pending");
+        fs::write(&empty, b"").unwrap();
+        fs::write(&partial, b"{\"schema_version\":").unwrap();
+        let mut d = sandbox.store();
+        let id = d.start().unwrap();
+        d.stop(StopReason::User).unwrap();
+        assert_eq!(d.list().unwrap().len(), 1);
+        assert_eq!(d.purge(1).unwrap(), 1);
+        assert!(empty.exists());
+        assert!(partial.exists());
+        assert!(d.download(&id).is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_linked_files_and_directories() {
@@ -692,5 +794,77 @@ mod tests {
         assert!(linked.store().start().is_err());
         // Remove the link itself, never recursively traverse it in cleanup.
         fs::remove_file(&linked.0).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_reparse_files_and_directories_cannot_be_downloaded_or_purged() {
+        use std::os::windows::fs::{symlink_dir, symlink_file, MetadataExt};
+
+        fn supported(result: io::Result<()>) -> bool {
+            match result {
+                Ok(()) => true,
+                // Windows CI may lack Developer Mode / SeCreateSymbolicLinkPrivilege,
+                // or its temporary filesystem may not support symbolic links.
+                Err(error) if matches!(error.raw_os_error(), Some(1314) | Some(50)) => {
+                    eprintln!(
+                        "SKIP Windows reparse test: symlink privilege or filesystem support unavailable ({:?})",
+                        error.raw_os_error()
+                    );
+                    false
+                }
+                Err(error) => panic!("unexpected synthetic symlink creation failure: {error}"),
+            }
+        }
+
+        let target = Sandbox::new();
+        let mut target_store = target.store();
+        let target_id = target_store.start().unwrap();
+        target_store.stop(StopReason::User).unwrap();
+        let target_path = target.0.join(format!("capture-{target_id}.jsonl"));
+        let original = fs::read(&target_path).unwrap();
+
+        let sandbox = Sandbox::new();
+        let mut d = sandbox.store();
+        let owned_id = d.start().unwrap();
+        d.stop(StopReason::User).unwrap();
+        // Match the target's real ID/header: exclusion must rely on the reparse
+        // guard, rather than merely rejecting a mismatching ownership header.
+        let alias = sandbox.0.join(format!("capture-{target_id}.jsonl"));
+        if !supported(symlink_file(&target_path, &alias)) {
+            return;
+        }
+        assert_ne!(
+            fs::symlink_metadata(&alias).unwrap().file_attributes() & 0x400,
+            0
+        );
+        assert!(d.download(&target_id).is_err());
+        let listed = d.list().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].capture_id, owned_id);
+        assert!(d.purge(2).is_err());
+        assert_eq!(d.purge(1).unwrap(), 1);
+        assert!(fs::symlink_metadata(&alias).is_ok());
+        assert!(d.list().unwrap().is_empty());
+        assert_eq!(d.purge(0).unwrap(), 0);
+        assert_eq!(fs::read(&target_path).unwrap(), original);
+        fs::remove_file(&alias).unwrap();
+
+        let linked = Sandbox::new();
+        if !supported(symlink_dir(&target.0, &linked.0)) {
+            return;
+        }
+        assert_ne!(
+            fs::symlink_metadata(&linked.0).unwrap().file_attributes() & 0x400,
+            0
+        );
+        let mut linked_store = linked.store();
+        assert!(linked_store.start().is_err());
+        assert!(linked_store.list().is_err());
+        assert!(linked_store.download(&target_id).is_err());
+        assert!(linked_store.purge(1).is_err());
+        assert_eq!(fs::read(&target_path).unwrap(), original);
+        // Remove the directory link itself; never traverse its target in cleanup.
+        fs::remove_dir(&linked.0).unwrap();
     }
 }

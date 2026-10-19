@@ -7,9 +7,20 @@ param(
     [Parameter(Mandatory = $true)][string[]]$InputPath,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{32}$')][string]$CaptureId,
     [Parameter(Mandatory = $true)][string]$OutputPath,
-    [ValidateRange(0.000001, 1.0)][double]$Threshold = 0.01
+    [ValidateRange(0.000001, 1.0)][double]$Threshold = 0.01,
+    [ValidateRange(1, 33554432)][long]$MaxInputBytes = 33554432,
+    [ValidateRange(1, 134217728)][long]$MaxReportBytes = 134217728
 )
 $ErrorActionPreference = 'Stop'
+# Hard bounds suit one host plus one guest capture. Callers can lower byte limits.
+if ($InputPath.Count -lt 1 -or $InputPath.Count -gt 2) { throw 'Analysis accepts one or two input files only.' }
+$totalInputBytes = 0L
+foreach ($path in $InputPath) {
+    $file = New-Object System.IO.FileInfo([IO.Path]::GetFullPath($path))
+    $totalInputBytes += $file.Length
+    if ($totalInputBytes -gt $MaxInputBytes) { throw 'Aggregate input byte limit exceeded; no report was created.' }
+}
+$readInputBytes = 0L
 $rows = New-Object 'System.Collections.Generic.List[object]'
 $warnings = New-Object 'System.Collections.Generic.List[string]'
 $matched = New-Object 'System.Collections.Generic.List[object]'
@@ -24,14 +35,31 @@ foreach ($path in $InputPath) {
     $inputIndex++
     # Preserve exact input bytes as well as readable lines, including broken UTF-8
     # from a partially written final character. Source files are untouched.
-    $bytes = [IO.File]::ReadAllBytes([IO.Path]::GetFullPath($path))
+    # Recheck through an open stream and allocate only a bounded buffer. Refuse
+    # files that grow/shrink while being read rather than producing partial evidence.
+    $inputStream = [IO.File]::OpenRead([IO.Path]::GetFullPath($path))
+    try {
+        $length = $inputStream.Length
+        if ($length -gt $MaxInputBytes - $readInputBytes) { throw 'Aggregate input byte limit exceeded; no report was created.' }
+        $bytes = [byte[]]::new([int]$length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $inputStream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -eq 0) { throw 'Input changed during analysis; no report was created.' }
+            $offset += $read
+        }
+        if ($inputStream.ReadByte() -ne -1) { throw 'Input changed during analysis; no report was created.' }
+        $readInputBytes += $length
+    } finally { $inputStream.Dispose() }
     $inputBytes.Add([pscustomobject]@{ input_index = $inputIndex; base64 = [Convert]::ToBase64String($bytes) })
     $strictEncoding = New-Object System.Text.UTF8Encoding($false, $true)
     try { $content = $strictEncoding.GetString($bytes) } catch {
         $warnings.Add("invalid_utf8:$inputIndex")
         $content = [Text.Encoding]::UTF8.GetString($bytes)
     }
-    if ($content.StartsWith([string][char]0xFEFF)) { $content = $content.Substring(1) }
+    # Culture-sensitive StartsWith can treat U+FEFF as ignorable and match a
+    # BOM-less document, stripping its opening '{'. Compare the actual code unit.
+    if ($content.Length -gt 0 -and $content[0] -eq [char]0xFEFF) { $content = $content.Substring(1) }
     $lines = [regex]::Split($content, "`n")
     $count = $lines.Length
     if ($content.EndsWith("`n")) { $count-- }
@@ -68,6 +96,13 @@ foreach ($source in @('host', 'guest')) {
     if ($sourceRows.Count -eq 0) { continue }
     if (@($sourceRows | Where-Object { $_.record.event -eq 'capture_stopped' }).Count -eq 0) { $warnings.Add("capture_interrupted_or_incomplete:$source") }
     if (@($sourceRows | Where-Object { $_.record.event -eq 'capture_started' }).Count -eq 0) { $warnings.Add("capture_start_missing:$source") }
+    $orderedRows = @($sourceRows | Sort-Object { $_.record.sequence })
+    $expectedSequence = 0L
+    if ($source -eq 'host') { $expectedSequence = 1L }
+    foreach ($orderedRow in $orderedRows) {
+        if ($orderedRow.record.sequence -gt $expectedSequence) { $warnings.Add("sequence_gap:${source}:$expectedSequence") }
+        $expectedSequence = [Math]::Max($expectedSequence, $orderedRow.record.sequence + 1)
+    }
     if (@($sourceRows | Group-Object { $_.record.sequence } | Where-Object { $_.Count -gt 1 }).Count -gt 0) { $warnings.Add("duplicate_sequence:$source") }
 }
 # Canonical envelope times describe append order. Explicit event times describe
@@ -121,9 +156,12 @@ foreach ($stop in $hostRows | Where-Object { $_.record.event -eq 'marker' -and $
         }
     }
     if ($null -ne $restartElapsed) { $measurement.status = 'playback_restarted_before_threshold' }
+    if (@($hostRows | Where-Object { $sampleTime = $samples["$($_.input_index)/$($_.line_number)"]; $null -ne $sampleTime -and $sampleTime.elapsed -eq $stopTime.elapsed }).Count -gt 0) {
+        $warnings.Add("same_millisecond_sample_excluded:$($stop.record.sequence)")
+    }
     $following = @($hostRows | Where-Object {
         $time = $samples["$($_.input_index)/$($_.line_number)"]
-        $_.record.event -eq 'meter_sample' -and $null -ne $time -and $time.elapsed -ge $stopTime.elapsed -and ($null -eq $restartElapsed -or $time.elapsed -lt $restartElapsed)
+        $_.record.event -eq 'meter_sample' -and $null -ne $time -and $time.elapsed -gt $stopTime.elapsed -and ($null -eq $restartElapsed -or $time.elapsed -lt $restartElapsed)
     } | Sort-Object { $samples["$($_.input_index)/$($_.line_number)"].elapsed }, { $_.record.sequence })
     foreach ($item in $following) {
         $sample = $item.record
@@ -136,6 +174,7 @@ foreach ($stop in $hostRows | Where-Object { $_.record.event -eq 'marker' -and $
         }
     }
     if ($invalidRestart) { $measurement.status = 'invalid_playback_boundary'; $measurement.delta_ms = $null }
+    if (@($warnings | Where-Object { $_ -like 'sequence_gap:host:*' }).Count -gt 0) { $measurement.status = 'incomplete_host_sequence'; $measurement.delta_ms = $null }
     if ($badHostOrder -or $warnings.Contains('duplicate_sequence:host')) {
         $measurement.status = 'ambiguous_host_order'; $measurement.delta_ms = $null
     }
@@ -144,6 +183,8 @@ foreach ($stop in $hostRows | Where-Object { $_.record.event -eq 'marker' -and $
 $timeline = @($matched | Sort-Object { $_.record.utc_unix_ms }, { $_.record.source }, { $_.record.sequence })
 $report = [ordered]@{ schema_version = 1; capture_id = $CaptureId; threshold = $Threshold; warnings = @($warnings | Select-Object -Unique); limitations = @('UTC timeline requires synchronized host and guest clocks; no automatic offset correction.', 'Markers are host arrival times, not exact playback-button click times.', 'Peak is aggregate host output, not recorded audio, per-process attribution, or proof of audible sound.', 'The first sample below threshold is not a sustained-silence measurement; sampling gaps and endpoint changes may affect it.', 'Raw lines are retained. Review input and report before sharing.'); stop_observations = @($latencies.ToArray()); timeline = $timeline; raw_lines = @($rows.ToArray()); raw_inputs = @($inputBytes.ToArray()) }
 $json = $report | ConvertTo-Json -Depth 40
-$bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($json + "`n")
+$outputEncoding = New-Object System.Text.UTF8Encoding($false)
+if ($outputEncoding.GetByteCount($json) + 1 -gt $MaxReportBytes) { throw 'Report byte limit exceeded; no report was created.' }
+$bytes = $outputEncoding.GetBytes($json + "`n")
 $output = New-Object System.IO.FileStream([IO.Path]::GetFullPath($OutputPath), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
 try { $output.Write($bytes, 0, $bytes.Length) } finally { $output.Dispose() }

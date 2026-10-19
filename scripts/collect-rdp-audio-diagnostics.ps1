@@ -51,12 +51,55 @@ $metrics = @(
     @{ key = 'frames_skipped_client'; path = '\RemoteFX Graphics(*)\Frames Skipped/Second - Insufficient Client Resources' },
     @{ key = 'frames_skipped_server'; path = '\RemoteFX Graphics(*)\Frames Skipped/Second - Insufficient Server Resources' }
 )
+# Resolve the fixed English allowlist through Windows' numeric Perflib indices.
+# Localized names/paths stay transient; no guessed translations or broad searches.
+function Resolve-CounterPaths {
+    try {
+        $english = @((Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib\009' -Name Counter -ErrorAction Stop).Counter)
+        $localized = @((Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib\CurrentLanguage' -Name Counter -ErrorAction Stop).Counter)
+        if ($english.Count % 2 -ne 0 -or $localized.Count % 2 -ne 0 -or $english.Count -eq 0 -or $localized.Count -eq 0) { throw 'invalid_table' }
+        $englishIndex = @{}
+        $localName = @{}
+        for ($i = 0; $i -lt $english.Count; $i += 2) {
+            if ([string]$english[$i] -notmatch '^[0-9]+$') { throw 'invalid_index' }
+            $englishIndex[[string]$english[$i + 1]] = [string]$english[$i]
+        }
+        for ($i = 0; $i -lt $localized.Count; $i += 2) {
+            if ([string]$localized[$i] -notmatch '^[0-9]+$') { throw 'invalid_index' }
+            $localName[[string]$localized[$i]] = [string]$localized[$i + 1]
+        }
+        Set-State 'counter_localization' 'available'
+        foreach ($metric in $metrics) {
+            $parts = $metric.path.Split('\')
+            $englishObject = $parts[1].Substring(0, $parts[1].Length - 3)
+            $englishCounter = $parts[2]
+            if (-not $englishIndex.ContainsKey($englishObject) -or -not $englishIndex.ContainsKey($englishCounter)) { continue }
+            $objectIndex = $englishIndex[$englishObject]
+            $counterIndex = $englishIndex[$englishCounter]
+            if (-not $localName.ContainsKey($objectIndex) -or -not $localName.ContainsKey($counterIndex)) { continue }
+            $objectName = $localName[$objectIndex]
+            $counterName = $localName[$counterIndex]
+            try {
+                $sets = @(Get-Counter -ListSet $objectName -ErrorAction Stop)
+                $verified = $false
+                foreach ($set in $sets) {
+                    if ($set.CounterSetName -cne $objectName) { continue }
+                    foreach ($path in $set.Paths) {
+                        if ([string]$path.Substring($path.LastIndexOf('\') + 1) -ceq $counterName) { $verified = $true; break }
+                    }
+                }
+                if ($verified) { $metric.resolvedPath = '\' + $objectName + '(*)\' + $counterName }
+            } catch { } # This fixed metric remains explicitly unavailable.
+        }
+    } catch { Set-State 'counter_localization' 'unavailable' }
+}
 $channels = @{ 'rdpsnd' = 'rdpsnd'; 'audio_playback_dvc' = 'audio_playback_dvc'; 'audio_playback_lossy_dvc' = 'audio_playback_lossy_dvc' }
 $logName = 'Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational'
 $lastRecord = 0L
 $startedUtc = [DateTime]::UtcNow
 try {
     Write-Record 'capture_started' @{}
+    Resolve-CounterPaths
     # Establish a cursor, without recording old events from earlier sessions.
     try {
         $log = Get-WinEvent -ListLog $logName -ErrorAction Stop
@@ -69,6 +112,13 @@ try {
         try {
             $log = Get-WinEvent -ListLog $logName -ErrorAction Stop
             if (-not $log.IsEnabled) { throw 'disabled' }
+            # Normal rollover can discard unread records while newest IDs continue
+            # increasing. Compare the oldest retained header with the next cursor.
+            $oldest = @(Get-WinEvent -LogName $logName -Oldest -MaxEvents 1 -ErrorAction SilentlyContinue)
+            if ($oldest.Count -gt 0 -and $lastRecord -gt 0 -and [long]$oldest[0].RecordId -gt $lastRecord + 1) {
+                Write-Record 'collector_gap' @{ component = 'rdp_events'; reason = 'log_rollover'; missing_record_count = [long]$oldest[0].RecordId - $lastRecord - 1 }
+                $lastRecord = [long]$oldest[0].RecordId - 1
+            }
             # Oldest-first and bounded batches prevent silent loss under normal load.
             # Do not read Message or persist arbitrary EventData, even on failures.
             $xpath = "*[System[EventRecordID > $lastRecord]]"
@@ -81,10 +131,10 @@ try {
                 if ($entry.TimeCreated.ToUniversalTime() -lt $startedUtc) { continue }
                 $xml = [xml]$entry.ToXml()
                 $matched = @{}
-                foreach ($data in $xml.Event.EventData.Data) {
+                foreach ($data in $xml.SelectNodes("/*[local-name()='Event']/*[local-name()='EventData']/*[local-name()='Data']")) {
                     # A matching arbitrary value (for example UserName=rdpsnd)
                     # is not evidence of an audio channel. Only the known field.
-                    if ([string]$data.Name -cne 'ChannelName') { continue }
+                    if ($data.GetAttribute('Name') -cne 'ChannelName') { continue }
                     $value = ([string]$data.InnerText).ToLowerInvariant()
                     if ($channels.ContainsKey($value)) { $matched[$channels[$value]] = $true }
                 }
@@ -104,7 +154,8 @@ try {
         foreach ($metric in $metrics) {
             if ($script:limitReached -or $clock.Elapsed.TotalSeconds -ge $DurationSeconds) { break }
             try {
-                $result = Get-Counter -Counter $metric.path -MaxSamples 1 -ErrorAction Stop
+                if (-not $metric.ContainsKey('resolvedPath')) { throw 'counter_not_resolved' }
+                $result = Get-Counter -Counter $metric.resolvedPath -MaxSamples 1 -ErrorAction Stop
                 $values = @($result.CounterSamples | Where-Object { $_.Status -eq 0 -and -not [double]::IsNaN($_.CookedValue) -and -not [double]::IsInfinity($_.CookedValue) } | ForEach-Object { [double]$_.CookedValue })
                 if ($values.Count -eq 0) { throw 'no_valid_samples' }
                 Set-State $metric.key 'available'
