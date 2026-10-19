@@ -1,6 +1,6 @@
 # P-20261019-001 ishizakahiroshi/RemoteAudio: RDP 音声遅延の観測ログ
 
-- GitHub Issue: 作成後に追記
+- GitHub Issue: https://github.com/ishizakahiroshi/RemoteAudio/issues/3
 - 作業対象: `ishizakahiroshi/RemoteAudio`
 - 作業 branch: `dots/P-20261019-001-rdp-audio-diagnostics`
 - PR base: `develop`
