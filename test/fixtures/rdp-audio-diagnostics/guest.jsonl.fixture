@@ -1,0 +1,4 @@
+{"schema_version":1,"source":"guest","capture_id":"0123456789abcdef0123456789abcdef","sequence":0,"utc_unix_ms":946684800000,"elapsed_ms":0,"event":"capture_started"}
+{"schema_version":1,"source":"guest","capture_id":"0123456789abcdef0123456789abcdef","sequence":1,"utc_unix_ms":946684800180,"elapsed_ms":180,"event":"rdp_audio_channel","channel":"rdpsnd","event_id":132,"event_utc_unix_ms":946684800160}
+{"schema_version":1,"source":"guest","capture_id":"0123456789abcdef0123456789abcdef","sequence":2,"utc_unix_ms":946684800250,"elapsed_ms":250,"event":"collector_state","component":"udp_rtt_ms","state":"unavailable"}
+{"schema_version":1,"source":"guest","capture_id":"0123456789abcdef0123456789abcdef","sequence":3,"utc_unix_ms":946684800400,"elapsed_ms":400,"event":"capture_stopped","reason":"duration_limit"}

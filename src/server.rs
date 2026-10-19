@@ -12,7 +12,7 @@
 //!    a LAN client can load the page and *then* paste a token.
 //! 4. Handler. Every Core Audio touch goes through [`AudioGate`].
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,6 +33,7 @@ use crate::assets::WebAssets;
 use crate::audio::{self, AudioDevice};
 use crate::auth::AuthState;
 use crate::config::{self, Config, SortPolicy};
+use crate::diagnostics::{Diagnostics, Marker, Operation, Phase, StopReason};
 use crate::history::History;
 use crate::net;
 
@@ -71,6 +72,8 @@ pub struct AppState {
     pub audio: AudioGate,
     pub history: Arc<Mutex<History>>,
     pub history_path: Arc<PathBuf>,
+    pub diagnostics: Arc<std::sync::Mutex<Diagnostics>>,
+    pub diagnostic_operations: Arc<std::sync::Mutex<OperationQueue>>,
     /// AR-02 rebinding guard: allowed `Host` header values, built once at
     /// startup from loopback names + current LAN IPs (see `net::build_allowed_hosts`).
     pub allowed_hosts: Arc<HashSet<String>>,
@@ -123,6 +126,13 @@ impl AudioGate {
             slot: Arc::new(std::sync::Mutex::new(())),
             admission: Arc::new(tokio::sync::Semaphore::new(MAX_QUEUED_AUDIO_CALLS)),
         }
+    }
+
+    /// One diagnostic read without waiting behind another audio operation.
+    /// The callback runs only while this gate owns the serialization slot.
+    fn try_sample<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
+        let _slot = self.slot.try_lock().ok()?;
+        Some(f())
     }
 
     async fn run<T, F>(&self, f: F) -> Result<T, GateError>
@@ -178,6 +188,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/volume", get(volume_handler).post(set_volume_handler))
         .route("/api/test-sound", post(test_sound_handler))
         .route("/api/restart", post(restart_handler))
+        .route("/api/diagnostics", get(diagnostics_list))
+        .route("/api/diagnostics/start", post(diagnostics_start))
+        .route("/api/diagnostics/stop", post(diagnostics_stop))
+        .route("/api/diagnostics/marker", post(diagnostics_marker))
+        .route("/api/diagnostics/purge", post(diagnostics_purge))
+        .route("/api/diagnostics/:id/download", get(diagnostics_download))
         .route("/api/about", get(about_handler))
         .route("/api/languages", get(languages_handler))
         // `route_layer` so an unmatched `/api/...` path skips auth and lands on
@@ -195,20 +211,409 @@ pub fn build_router(state: AppState) -> Router {
 }
 
 pub async fn serve(state: AppState, addr: SocketAddr) -> Result<(), std::io::Error> {
-    let app = build_router(state);
+    let app = build_router(state.clone());
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!("[listening] http://{addr}/");
-    axum::serve(
+    let sampler = spawn_diagnostic_sampler(state.clone());
+    let result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal())
-    .await
+    .await;
+    sampler.abort();
+    let mut recorder = state.diagnostics.lock().unwrap_or_else(|e| e.into_inner());
+    let _ = finish_capture(
+        &mut recorder,
+        &state.diagnostic_operations,
+        StopReason::Shutdown,
+    );
+    result
 }
 
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
     println!("\n[shutdown] Ctrl+C received");
+}
+
+// Diagnostics never hold their recorder lock while entering COM. Capture IDs
+// fence off delayed work so a stopped capture cannot leak into its successor.
+fn with_capture(
+    recorder: &std::sync::Mutex<Diagnostics>,
+    capture: &Option<String>,
+    f: impl FnOnce(&mut Diagnostics) -> std::io::Result<()>,
+) {
+    let mut recorder = recorder.lock().unwrap_or_else(|e| e.into_inner());
+    if capture.as_deref().is_some_and(|id| recorder.is_active(id)) {
+        let _ = f(&mut recorder);
+    }
+}
+
+fn event_time() -> (std::time::Instant, u64) {
+    let instant = std::time::Instant::now();
+    let utc_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    (instant, utc_ms)
+}
+
+const MAX_OPERATION_EVENTS: usize = 256;
+
+struct OperationEvent {
+    capture_id: String,
+    operation: Operation,
+    phase: Phase,
+    hresult: Option<i32>,
+    level: Option<f32>,
+    muted: Option<bool>,
+    occurred: std::time::Instant,
+    utc_ms: u64,
+}
+
+/// In-memory fixed-shape queue, independent of the recorder/file mutex. The
+/// audio gate never waits for disk. At most the admitted audio calls can add
+/// stale capture IDs; drains clear overflow state along with queued events.
+#[derive(Default)]
+pub struct OperationQueue {
+    active: Option<String>,
+    events: VecDeque<OperationEvent>,
+    overflowed: HashSet<String>,
+}
+
+impl OperationQueue {
+    fn push(&mut self, event: OperationEvent) {
+        if self.active.as_deref() != Some(event.capture_id.as_str()) {
+            return;
+        }
+        if self.events.len() >= MAX_OPERATION_EVENTS {
+            self.overflowed.insert(event.capture_id);
+        } else {
+            self.events.push_back(event);
+        }
+    }
+}
+
+fn drain_operations(recorder: &mut Diagnostics, queue: &std::sync::Mutex<OperationQueue>) {
+    let (events, overflowed) = {
+        let mut queue = queue.lock().unwrap_or_else(|e| e.into_inner());
+        (
+            std::mem::take(&mut queue.events),
+            std::mem::take(&mut queue.overflowed),
+        )
+    };
+    for event in events {
+        if recorder.is_active(&event.capture_id) {
+            let _ = recorder.operation_at(
+                event.operation,
+                event.phase,
+                event.hresult,
+                event.level,
+                event.muted,
+                (event.occurred, event.utc_ms),
+            );
+        }
+    }
+    if recorder
+        .active_id()
+        .is_some_and(|id| overflowed.contains(&id))
+    {
+        let _ = recorder.stop(StopReason::QueueOverflow);
+    }
+}
+
+fn finish_capture(
+    recorder: &mut Diagnostics,
+    queue: &std::sync::Mutex<OperationQueue>,
+    reason: StopReason,
+) -> std::io::Result<()> {
+    // Fence producers first, then persist everything already queued before
+    // writing the terminal record. Producers never acquire the recorder mutex.
+    queue.lock().unwrap_or_else(|e| e.into_inner()).active = None;
+    drain_operations(recorder, queue);
+    recorder.stop(reason)
+}
+
+async fn run_recorded_operation<T, F>(
+    gate: &AudioGate,
+    queue: Arc<std::sync::Mutex<OperationQueue>>,
+    capture: Option<String>,
+    operation: Operation,
+    level: Option<f32>,
+    muted: Option<bool>,
+    f: F,
+) -> Result<Result<T, audio::AudioError>, GateError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, audio::AudioError> + Send + 'static,
+{
+    gate.run(move || {
+        let enqueue = |phase, hresult| {
+            if let Some(capture_id) = &capture {
+                let (occurred, utc_ms) = event_time();
+                queue
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(OperationEvent {
+                        capture_id: capture_id.clone(),
+                        operation,
+                        phase,
+                        hresult,
+                        level,
+                        muted,
+                        occurred,
+                        utc_ms,
+                    });
+            }
+        };
+        enqueue(Phase::Started, None);
+        let result = f();
+        match &result {
+            Ok(_) => enqueue(Phase::Completed, None),
+            Err(e) => enqueue(Phase::Failed, Some(e.source.code().0)),
+        }
+        result
+    })
+    .await
+}
+
+fn spawn_diagnostic_sampler(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(100));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut pending: Option<tokio::task::JoinHandle<()>> = None;
+        loop {
+            interval.tick().await;
+            let recorder = state.diagnostics.clone();
+            let operations = state.diagnostic_operations.clone();
+            let capture = match tokio::task::spawn_blocking(move || {
+                let mut recorder = recorder.lock().unwrap_or_else(|e| e.into_inner());
+                drain_operations(&mut recorder, &operations);
+                // Independent of gate availability, including a hung COM call.
+                let _ = recorder.tick();
+                let active = recorder.active_id();
+                operations.lock().unwrap_or_else(|e| e.into_inner()).active = active.clone();
+                active
+            })
+            .await
+            {
+                Ok(capture) => capture,
+                Err(_) => continue,
+            };
+            if capture.is_none() {
+                continue;
+            }
+            if pending.as_ref().is_some_and(|task| !task.is_finished()) {
+                continue;
+            }
+            let recorder = state.diagnostics.clone();
+            let gate = state.audio.clone();
+            pending = Some(tokio::task::spawn_blocking(move || {
+                // Never enqueue a sampling call behind real user operations.
+                let still_active = recorder
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .active_id()
+                    == capture;
+                if !still_active {
+                    return;
+                }
+                // The slot covers COM acquisition/read/release only. Durable
+                // logging is outside it, so a slow file cannot hold this gate.
+                let result = gate.try_sample(audio::sample_output);
+                with_capture(&recorder, &capture, |d| match result {
+                    Some(Ok(sample)) => d.sample_at(
+                        &sample.endpoint_id,
+                        sample.peak,
+                        sample.volume,
+                        sample.muted,
+                        sample.acquired,
+                        sample.acquired_utc_ms,
+                    ),
+                    Some(Err(e)) => d.meter_unavailable(e.source.code().0),
+                    None => d.meter_busy(),
+                });
+            }));
+        }
+    })
+}
+
+fn diagnostics_error(error: std::io::Error) -> Response {
+    use std::io::ErrorKind;
+    let status = match error.kind() {
+        ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
+        ErrorKind::AlreadyExists | ErrorKind::WouldBlock => StatusCode::CONFLICT,
+        ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    // No OS error strings or paths are exposed to callers or durable records.
+    (
+        status,
+        Json(serde_json::json!({"error": "diagnostics_unavailable"})),
+    )
+        .into_response()
+}
+
+async fn diagnostics_request(
+    recorder: Arc<std::sync::Mutex<Diagnostics>>,
+    operations: Arc<std::sync::Mutex<OperationQueue>>,
+    f: impl FnOnce(&mut Diagnostics) -> Response + Send + 'static,
+) -> Response {
+    match tokio::task::spawn_blocking(move || {
+        let mut recorder = recorder.lock().unwrap_or_else(|e| e.into_inner());
+        drain_operations(&mut recorder, &operations);
+        let response = f(&mut recorder);
+        operations.lock().unwrap_or_else(|e| e.into_inner()).active = recorder.active_id();
+        response
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => diagnostics_error(std::io::Error::other("diagnostic task failed")),
+    }
+}
+
+async fn diagnostics_list(State(state): State<AppState>) -> Response {
+    diagnostics_request(
+        state.diagnostics,
+        state.diagnostic_operations,
+        move |recorder| match recorder.list() {
+            Ok(captures) => {
+                Json(serde_json::json!({"active": recorder.active_id(), "captures": captures}))
+                    .into_response()
+            }
+            Err(e) => diagnostics_error(e),
+        },
+    )
+    .await
+}
+
+async fn diagnostics_start(State(state): State<AppState>) -> Response {
+    diagnostics_request(
+        state.diagnostics,
+        state.diagnostic_operations,
+        move |recorder| match recorder.start() {
+            Ok(capture_id) => Json(serde_json::json!({"capture_id": capture_id})).into_response(),
+            Err(e) => diagnostics_error(e),
+        },
+    )
+    .await
+}
+
+async fn diagnostics_stop(State(state): State<AppState>) -> Response {
+    let operations = state.diagnostic_operations.clone();
+    diagnostics_request(
+        state.diagnostics,
+        state.diagnostic_operations,
+        move |recorder| match finish_capture(recorder, &operations, StopReason::User) {
+            Ok(()) => Json(serde_json::json!({"stopped": true})).into_response(),
+            Err(e) => diagnostics_error(e),
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MarkerRequest {
+    marker: Marker,
+}
+
+async fn diagnostics_marker(
+    State(state): State<AppState>,
+    body: Result<Json<MarkerRequest>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = body else {
+        return bad_request("a fixed diagnostic marker is required");
+    };
+    let received = std::time::Instant::now();
+    let received_utc_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    let capture = state
+        .diagnostics
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .active_id();
+    diagnostics_request(
+        state.diagnostics,
+        state.diagnostic_operations,
+        move |recorder| {
+            if !capture.as_deref().is_some_and(|id| recorder.is_active(id)) {
+                return diagnostics_error(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "capture changed",
+                ));
+            }
+            match recorder.marker_at(body.marker, received, received_utc_ms) {
+                Ok(()) => Json(serde_json::json!({"marked": true})).into_response(),
+                Err(e) => diagnostics_error(e),
+            }
+        },
+    )
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PurgeRequest {
+    confirm_count: usize,
+}
+
+async fn diagnostics_purge(
+    State(state): State<AppState>,
+    body: Result<Json<PurgeRequest>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = body else {
+        return bad_request("confirm_count is required");
+    };
+    diagnostics_request(
+        state.diagnostics,
+        state.diagnostic_operations,
+        move |recorder| match recorder.purge(body.confirm_count) {
+            Ok(deleted) => Json(serde_json::json!({"deleted": deleted})).into_response(),
+            Err(e) => diagnostics_error(e),
+        },
+    )
+    .await
+}
+
+async fn diagnostics_download(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    diagnostics_request(
+        state.diagnostics,
+        state.diagnostic_operations,
+        move |recorder| {
+            match recorder.download(&id) {
+                Ok(bytes) => {
+                    // Only a path-validated, app-owned capture gets this far. Header
+                    // construction still fails closed rather than accepting user text.
+                    let Ok(disposition) =
+                        HeaderValue::from_str(&format!("attachment; filename=\"{id}.jsonl\""))
+                    else {
+                        return bad_request("invalid capture ID");
+                    };
+                    let mut response = bytes.into_response();
+                    response.headers_mut().insert(
+                        header::CONTENT_TYPE,
+                        HeaderValue::from_static("application/x-ndjson; charset=utf-8"),
+                    );
+                    response
+                        .headers_mut()
+                        .insert(header::CONTENT_DISPOSITION, disposition);
+                    response
+                        .headers_mut()
+                        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+                    response
+                }
+                Err(e) => diagnostics_error(e),
+            }
+        },
+    )
+    .await
 }
 
 // ---- Handlers ---------------------------------------------------------------
@@ -311,7 +716,23 @@ async fn set_default_handler(
     // The switch *and* its 3-role verification happen inside one gated blocking
     // call, so a second switch cannot slip between them.
     let target = id.clone();
-    match state.audio.run(move || audio::set_default(&target)).await {
+    let capture = state
+        .diagnostic_operations
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .active
+        .clone();
+    match run_recorded_operation(
+        &state.audio,
+        state.diagnostic_operations.clone(),
+        capture,
+        Operation::DefaultDevice,
+        None,
+        None,
+        move || audio::set_default(&target),
+    )
+    .await
+    {
         Ok(Ok(())) => {}
         Ok(Err(e)) => return audio_error(e),
         Err(e) => return gate_error(e),
@@ -370,10 +791,22 @@ async fn set_volume_handler(
     // just the one it changed so a concurrent mute/level change elsewhere is not
     // silently reverted.
     let (level, muted) = (patch.level, patch.muted);
-    let result = state
-        .audio
-        .run(move || audio::update_master_volume(level, muted))
-        .await;
+    let capture = state
+        .diagnostic_operations
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .active
+        .clone();
+    let result = run_recorded_operation(
+        &state.audio,
+        state.diagnostic_operations.clone(),
+        capture,
+        Operation::Volume,
+        level,
+        muted,
+        move || audio::update_master_volume(level, muted),
+    )
+    .await;
     match result {
         Ok(Ok(volume)) => Json(volume).into_response(),
         Ok(Err(e)) => audio_error(e),
@@ -382,7 +815,23 @@ async fn set_volume_handler(
 }
 
 async fn test_sound_handler(State(state): State<AppState>) -> Response {
-    match state.audio.run(audio::play_test_sound).await {
+    let capture = state
+        .diagnostic_operations
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .active
+        .clone();
+    match run_recorded_operation(
+        &state.audio,
+        state.diagnostic_operations.clone(),
+        capture,
+        Operation::TestSound,
+        None,
+        None,
+        audio::play_test_sound,
+    )
+    .await
+    {
         Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
         Ok(Err(e)) => audio_error(e),
         Err(e) => gate_error(e),
@@ -409,8 +858,14 @@ async fn restart_handler(State(state): State<AppState>) -> Response {
     // reads the marker, and this response has not been written yet — the client
     // would see a dropped connection and report the restart as failed.
     #[cfg(windows)]
-    tokio::spawn(async {
+    tokio::spawn(async move {
         tokio::time::sleep(RESTART_GRACE).await;
+        let mut recorder = state.diagnostics.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = finish_capture(
+            &mut recorder,
+            &state.diagnostic_operations,
+            StopReason::Shutdown,
+        );
         crate::supervisor::ask_parent_to_restart();
     });
 
@@ -808,6 +1263,237 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpStream;
 
+    #[tokio::test]
+    async fn blocked_recorder_does_not_delay_audio_or_hold_its_gate() {
+        let state = test_state(Vec::new());
+        let id = state
+            .diagnostics
+            .lock()
+            .expect("recorder")
+            .start()
+            .expect("start");
+        state.diagnostic_operations.lock().unwrap().active = Some(id.clone());
+        let recorder = state.diagnostics.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _held = recorder.lock().unwrap();
+            ready_tx.send(()).expect("signal held");
+            release_rx.recv().expect("release");
+        });
+        ready_rx.await.expect("recorder held");
+        let result = tokio::time::timeout(
+            Duration::from_secs(1),
+            run_recorded_operation(
+                &state.audio,
+                state.diagnostic_operations.clone(),
+                Some(id.clone()),
+                Operation::TestSound,
+                None,
+                None,
+                || Ok(()),
+            ),
+        )
+        .await;
+        // Keep the recorder blocked while another audio call uses the gate.
+        let next = tokio::time::timeout(Duration::from_secs(1), state.audio.run(|| 7)).await;
+        release_tx.send(()).expect("release recorder");
+        holder.join().expect("holder");
+        let mut held = state.diagnostics.lock().unwrap();
+        finish_capture(&mut held, &state.diagnostic_operations, StopReason::User).expect("stop");
+        let bytes = held.download(&id).expect("download");
+        held.purge(1).expect("cleanup");
+        drop(held);
+        assert!(matches!(result, Ok(Ok(Ok(())))));
+        assert!(matches!(next, Ok(Ok(7))));
+        let lines: Vec<serde_json::Value> = String::from_utf8(bytes)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(lines.last().unwrap()["event"], "capture_stopped");
+        assert!(lines.iter().any(|v| v["phase"] == "started"));
+        assert!(lines.iter().any(|v| v["phase"] == "completed"));
+    }
+
+    #[test]
+    fn operation_queue_overflow_stops_capture_and_never_grows_unbounded() {
+        let state = test_state(Vec::new());
+        let mut recorder = state.diagnostics.lock().unwrap();
+        let id = recorder.start().expect("start");
+        {
+            let mut queue = state.diagnostic_operations.lock().unwrap();
+            queue.active = Some(id.clone());
+            let (occurred, utc_ms) = event_time();
+            queue.push(OperationEvent {
+                capture_id: "retired-synthetic-capture".to_owned(),
+                operation: Operation::TestSound,
+                phase: Phase::Completed,
+                hresult: None,
+                level: None,
+                muted: None,
+                occurred,
+                utc_ms,
+            });
+            assert!(queue.events.is_empty(), "stale producers are fenced out");
+            for _ in 0..MAX_OPERATION_EVENTS + 1 {
+                let (occurred, utc_ms) = event_time();
+                queue.push(OperationEvent {
+                    capture_id: id.clone(),
+                    operation: Operation::TestSound,
+                    phase: Phase::Started,
+                    hresult: None,
+                    level: None,
+                    muted: None,
+                    occurred,
+                    utc_ms,
+                });
+            }
+            assert_eq!(queue.events.len(), MAX_OPERATION_EVENTS);
+        }
+        drain_operations(&mut recorder, &state.diagnostic_operations);
+        assert!(recorder.active_id().is_none());
+        {
+            let queue = state.diagnostic_operations.lock().unwrap();
+            assert!(queue.events.is_empty());
+            assert!(queue.overflowed.is_empty());
+        }
+        let text = String::from_utf8(recorder.download(&id).unwrap()).unwrap();
+        assert!(text.contains("queue_overflow"));
+        recorder.purge(1).expect("cleanup");
+    }
+
+    #[test]
+    fn diagnostic_sample_skips_a_busy_audio_gate_without_calling_com() {
+        let gate = AudioGate::new();
+        let held = gate.slot.lock().expect("hold gate");
+        assert!(gate
+            .try_sample(|| panic!("busy gate must not run a sample"))
+            .is_none());
+        drop(held);
+        assert_eq!(gate.try_sample(|| 7), Some(7));
+    }
+
+    #[tokio::test]
+    async fn all_diagnostics_routes_require_lan_authentication() {
+        async fn synthetic_lan_peer(mut request: Request, next: Next) -> Response {
+            request.extensions_mut().insert(ConnectInfo(
+                "192.0.2.10:42000"
+                    .parse::<SocketAddr>()
+                    .expect("synthetic peer"),
+            ));
+            next.run(request).await
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let app =
+            build_router(test_state(Vec::new())).layer(middleware::from_fn(synthetic_lan_peer));
+        let task = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .expect("serve");
+        });
+        tokio::task::spawn_blocking(move || {
+            for (method, path) in [
+                ("GET", "/api/diagnostics"),
+                ("POST", "/api/diagnostics/start"),
+                ("POST", "/api/diagnostics/stop"),
+                ("POST", "/api/diagnostics/marker"),
+                ("POST", "/api/diagnostics/purge"),
+                (
+                    "GET",
+                    "/api/diagnostics/00000000000000000000000000000000/download",
+                ),
+            ] {
+                let response = request(
+                    addr,
+                    &format!("{method} {path} HTTP/1.1"),
+                    Some("localhost"),
+                );
+                assert!(response.starts_with("HTTP/1.1 401"), "{path}: {response}");
+            }
+        })
+        .await
+        .expect("join");
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn diagnostics_routes_reject_cross_origin_mutations() {
+        let addr = spawn_test_server().await;
+        let host = format!("127.0.0.1:{}", addr.port());
+        for path in ["start", "stop", "marker", "purge"] {
+            let host = host.clone();
+            let response = tokio::task::spawn_blocking(move || {
+                request(addr, &format!("POST /api/diagnostics/{path} HTTP/1.1\r\nOrigin: https://evil.example\r\nContent-Length: 0"), Some(&host))
+            }).await.expect("join");
+            assert!(response.starts_with("HTTP/1.1 403"), "{path}: {response}");
+        }
+    }
+
+    #[tokio::test]
+    async fn diagnostics_capture_download_and_confirmed_purge_are_wired() {
+        let addr = spawn_test_server().await;
+        let host = format!("127.0.0.1:{}", addr.port());
+        tokio::task::spawn_blocking(move || {
+            let send = |method: &str, path: &str, body: &str| {
+                let mut stream = TcpStream::connect(addr).expect("connect");
+                stream.set_read_timeout(Some(Duration::from_secs(10))).expect("timeout");
+                let raw = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                stream.write_all(raw.as_bytes()).expect("write");
+                let mut response = String::new();
+                stream.read_to_string(&mut response).expect("read");
+                response
+            };
+            let response = send("GET", "/api/diagnostics", "");
+            assert!(response.contains("\"active\":null"), "{response}");
+            let response = send("POST", "/api/diagnostics/start", "");
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            let body: serde_json::Value = serde_json::from_str(response.split("\r\n\r\n").nth(1).expect("body")).expect("JSON");
+            let id = body["capture_id"].as_str().expect("capture ID");
+            let response = send("POST", "/api/diagnostics/purge", r#"{"confirm_count":1}"#);
+            assert!(response.starts_with("HTTP/1.1 409"), "{response}");
+            let response = send("POST", "/api/diagnostics/marker", r#"{"marker":"stop_pressed"}"#);
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            let response = send("POST", "/api/diagnostics/marker", r#"{"marker":"arbitrary free text"}"#);
+            assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+            let response = send("POST", "/api/diagnostics/stop", "");
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            let response = send("GET", &format!("/api/diagnostics/{id}/download"), "");
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            assert!(response.contains("attachment; filename="), "{response}");
+            assert!(response.contains("stop_pressed"), "{response}");
+            let response = send("POST", "/api/diagnostics/purge", r#"{"confirm_count":0}"#);
+            assert!(response.starts_with("HTTP/1.1 409"), "{response}");
+            let response = send("POST", "/api/diagnostics/purge", r#"{"confirm_count":1}"#);
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            assert!(response.contains("\"deleted\":1"), "{response}");
+        }).await.expect("join");
+    }
+
+    #[test]
+    fn delayed_capture_work_cannot_write_into_a_new_capture() {
+        let state = test_state(Vec::new());
+        let mut recorder = state.diagnostics.lock().unwrap();
+        let old = Some(recorder.start().expect("start"));
+        recorder.stop(StopReason::User).expect("stop");
+        let current = recorder.start().expect("start successor");
+        drop(recorder);
+        with_capture(&state.diagnostics, &old, |d| d.marker(Marker::SoundStopped));
+        let mut recorder = state.diagnostics.lock().unwrap();
+        recorder.stop(StopReason::User).expect("stop successor");
+        let bytes = recorder.download(&current).expect("download");
+        assert!(!String::from_utf8(bytes)
+            .expect("UTF-8")
+            .contains("sound_stopped"));
+        recorder.purge(2).expect("cleanup");
+    }
+
     // ---- VolumePatch -------------------------------------------------------
 
     fn patch(json: &str) -> VolumePatch {
@@ -1091,7 +1777,12 @@ mod tests {
 
     /// Minimal state for the request paths that never touch Core Audio.
     fn test_state(allowed_hosts: Vec<String>) -> AppState {
-        let dir = std::env::temp_dir().join(format!("audioremote-srv-{}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "audioremote-srv-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
         let _ = std::fs::create_dir_all(&dir);
         AppState {
             config: Arc::new(Config::default()),
@@ -1102,6 +1793,10 @@ mod tests {
             audio: AudioGate::new(),
             history: Arc::new(Mutex::new(History::default())),
             history_path: Arc::new(dir.join("history.toml")),
+            diagnostics: Arc::new(std::sync::Mutex::new(Diagnostics::new(
+                dir.join("diagnostics"),
+            ))),
+            diagnostic_operations: Arc::new(std::sync::Mutex::new(OperationQueue::default())),
             allowed_hosts: Arc::new(allowed_hosts.into_iter().collect()),
             // Matches a bare `RemoteAudio serve`, which is what these tests
             // model. The supervised path is covered by its own test below.

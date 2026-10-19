@@ -16,6 +16,8 @@ mod autostart;
 mod callout;
 #[cfg(windows)]
 mod config;
+#[cfg(any(windows, test))]
+mod diagnostics;
 #[cfg(windows)]
 mod history;
 #[cfg(windows)]
@@ -441,6 +443,13 @@ fn run_serve(no_open: bool) {
         audio: server::AudioGate::new(),
         history: Arc::new(tokio::sync::Mutex::new(history_state)),
         history_path: Arc::new(history_path),
+        diagnostics: Arc::new(std::sync::Mutex::new(diagnostics::Diagnostics::new(
+            config_path
+                .parent()
+                .expect("config directory")
+                .join("diagnostics"),
+        ))),
+        diagnostic_operations: Arc::new(std::sync::Mutex::new(server::OperationQueue::default())),
         allowed_hosts: Arc::new(allowed_hosts),
         supervised: supervisor::is_supervised(),
     };

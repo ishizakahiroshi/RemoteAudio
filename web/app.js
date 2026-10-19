@@ -17,6 +17,7 @@ let state = {
   status: null,
   devices: null,
   volume: null,
+  diagnostics: null,
   showSettings: false,
   showAbout: false,
   about: null,
@@ -148,9 +149,10 @@ function tOptional(key) {
 // ---------- Networking ----------
 
 async function api(path, opts = {}) {
+  const { responseType, ...fetchOpts } = opts;
   const headers = new Headers(opts.headers || {});
   if (state.token) headers.set("authorization", "Bearer " + state.token);
-  const res = await fetch(path, { ...opts, headers });
+  const res = await fetch(path, { ...fetchOpts, headers });
   if (res.status === 401) {
     if (state.token) {
       state.token = "";
@@ -180,7 +182,7 @@ async function api(path, opts = {}) {
     throw new Error(res.status + " " + res.statusText + " " + text);
   }
   if (res.status === 204) return null;
-  return res.json();
+  return responseType === "blob" ? res.blob() : res.json();
 }
 
 async function pollOnce() {
@@ -189,7 +191,10 @@ async function pollOnce() {
       api("/api/status"),
       api("/api/devices"),
       api("/api/volume"),
+      refreshDiagnostics(),
     ]);
+    // Any endpoint may detect token revocation first, including diagnostics.
+    if (results.some((result) => result.status === "rejected" && result.reason?.message === "unauthorized")) return;
     const [statusResult, devicesResult, volumeResult] = results;
     if (statusResult.status === "rejected" || devicesResult.status === "rejected") {
       const failure = statusResult.status === "rejected" ? statusResult.reason : devicesResult.reason;
@@ -283,6 +288,8 @@ function clearToken() {
   state.status = null;
   state.devices = null;
   state.volume = null;
+  state.diagnostics = null;
+  diagnosticsRevision += 1;
   state.showSettings = false;
   state.about = null;
   state.about_build = null;
@@ -444,6 +451,142 @@ async function sendVolume(request) {
   }
 }
 
+// ---------- Opt-in diagnostic capture ----------
+
+const DIAGNOSTIC_MARKERS = ["playback_started", "stop_pressed", "sound_stopped"];
+let diagnosticsBusy = false;
+let diagnosticsRevision = 0;
+
+async function refreshDiagnostics(force = false) {
+  if (diagnosticsBusy && !force) return;
+  const revision = ++diagnosticsRevision;
+  try {
+    const data = await api("/api/diagnostics");
+    if (revision === diagnosticsRevision) state.diagnostics = data;
+  } catch (e) {
+    // Never offer destructive controls using stale state after a failed read.
+    if (revision === diagnosticsRevision) state.diagnostics = null;
+    throw e;
+  }
+}
+
+function updateDiagnosticsPanel() {
+  // Patch just this panel: preserve volume drags and open sheet scroll position.
+  const panel = document.getElementById("diagnosticsPanel");
+  if (panel) panel.replaceWith(renderDiagnosticsPanel());
+}
+
+async function diagnosticAction(action) {
+  if (diagnosticsBusy) return;
+  diagnosticsBusy = true;
+  diagnosticsRevision += 1; // invalidate reads started before this mutation
+  updateDiagnosticsPanel();
+  try {
+    await action();
+  } catch (e) {
+    if (e.message !== "unauthorized") toast(t("diagnostics.failed", { msg: e.message }), "err");
+  } finally {
+    // A lost response may still have changed the host. Read back once, never
+    // replay a mutation automatically (especially start, marker, or purge).
+    if (!state.needsToken) {
+      try { await refreshDiagnostics(true); } catch (_) { /* controls stay disabled */ }
+    }
+    diagnosticsBusy = false;
+    updateDiagnosticsPanel();
+  }
+}
+
+async function setDiagnosticCapture(start) {
+  if (!state.diagnostics || Boolean(state.diagnostics.active) === start) return;
+  await diagnosticAction(() => api("/api/diagnostics/" + (start ? "start" : "stop"), { method: "POST" }));
+}
+
+async function addDiagnosticMarker(marker) {
+  if (!state.diagnostics?.active || !DIAGNOSTIC_MARKERS.includes(marker)) return;
+  await diagnosticAction(async () => {
+    await api("/api/diagnostics/marker", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ marker }),
+    });
+    toast(t("diagnostics.markerSaved"));
+  });
+}
+
+async function purgeDiagnostics() {
+  await diagnosticAction(async () => {
+    // Obtain the count immediately before confirmation; the host verifies that
+    // same count and rejects a concurrent capture start or changed inventory.
+    await refreshDiagnostics(true);
+    const data = state.diagnostics;
+    if (!data || data.active || !data.captures.length) return;
+    const count = data.captures.length;
+    if (!window.confirm(t("diagnostics.confirmPurge", { count }))) return;
+    const result = await api("/api/diagnostics/purge", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm_count: count }),
+    });
+    toast(t("diagnostics.purged", { count: result.deleted }));
+  });
+}
+
+async function downloadDiagnosticCapture(id) {
+  if (!/^[a-f0-9]{32}$/.test(id)) return;
+  await diagnosticAction(async () => {
+    // A plain link cannot carry Bearer auth. Fetch into a local blob instead;
+    // tokens never enter the download URL or filename.
+    const blob = await api("/api/diagnostics/" + id + "/download", { responseType: "blob" });
+    const url = URL.createObjectURL(blob);
+    const link = h("a", { href: url, download: id + ".jsonl" });
+    document.body.append(link);
+    try { link.click(); } finally {
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  });
+}
+
+function renderDiagnosticsPanel() {
+  const data = state.diagnostics;
+  const active = Boolean(data?.active);
+  const button = (key, action, disabled = false, extraClass = "") => {
+    const el = h("button", { type: "button", class: "btn small ghost " + extraClass, onclick: action }, t(key));
+    el.disabled = diagnosticsBusy || disabled;
+    return el;
+  };
+  const panel = h("section", { id: "diagnosticsPanel", class: "diagnostics-panel", "aria-labelledby": "diagnosticsTitle" },
+    h("h2", { id: "diagnosticsTitle" }, t("diagnostics.title")),
+    h("p", {}, t("diagnostics.privacy")),
+    h("p", {}, t("diagnostics.timing")),
+    h("p", {}, t("diagnostics.persistence")),
+    h("p", {}, t("diagnostics.interruptedHint")),
+    h("p", { class: "diagnostics-state", role: "status" },
+      !data ? t("diagnostics.unavailable") : active
+        ? t("diagnostics.active", { id: data.active }) : t("diagnostics.stopped")),
+    h("div", { class: "diagnostics-actions" },
+      button("diagnostics.start", () => setDiagnosticCapture(true), !data || active),
+      button("diagnostics.stop", () => setDiagnosticCapture(false), !active),
+      button("diagnostics.refresh", () => diagnosticAction(() => refreshDiagnostics(true))),
+    ),
+    h("div", { class: "diagnostics-actions" },
+      ...DIAGNOSTIC_MARKERS.map((marker) => button("diagnostics.marker." + marker, () => addDiagnosticMarker(marker), !active))),
+    h("h3", {}, t("diagnostics.captures", { count: data?.captures.length || 0 })),
+  );
+  const list = h("ul", { class: "diagnostics-list" });
+  for (const capture of data?.captures || []) {
+    if (!/^[a-f0-9]{32}$/.test(capture.capture_id)) continue;
+    list.append(h("li", {},
+      h("span", { class: "diagnostics-id" }, capture.capture_id),
+      h("span", {}, t("diagnostics.captureInfo", { bytes: capture.bytes, status: tOptional("diagnostics.status." + capture.status) || capture.status })),
+      capture.status === "startup_incomplete"
+        ? h("span", {}, t("diagnostics.startupIncompleteHint"))
+        : button("diagnostics.download", () => downloadDiagnosticCapture(capture.capture_id)),
+    ));
+  }
+  panel.append(list,
+    button("diagnostics.purge", purgeDiagnostics, !data || active || !data.captures.length, "diagnostics-danger"));
+  return panel;
+}
+
 // ---------- Rendering ----------
 
 function h(tag, attrs = {}, ...children) {
@@ -552,6 +695,7 @@ function renderMain() {
 
   app.append(
     h("div", { class: "footer-note" }, t("devices.footerNote")),
+    renderDiagnosticsPanel(),
   );
 }
 
