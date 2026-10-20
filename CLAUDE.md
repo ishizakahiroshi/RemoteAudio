@@ -49,7 +49,7 @@ Windows 11 ホスト（ホスト）の**既定音声出力デバイス**を、�
 - `docs/local/` — plan / recap / bugfix / pending（**gitignore・非公開**。"local" の名のとおり追跡しない。公開したい開発ドキュメントは `docs/` 直下へ置く）
   - `archive/v0.1.x/` — **v0.1 系（0.1.0 以降）のリリースサイクル全記録**をまとめる箱（release md / 実装計画 / 監査 2 件 / bugfix 3 件）。patch リリースの記録も同じ箱へ入れる
 - `packaging/` — 配布用の原本。`audioremote.manifest`（exe に埋め込む Win32 マニフェスト。**欠けると exe が起動しない**）／ `winget/` ／ `msix/`。`packaging/scoop/` は公開対象外の学習・参照用原本で、提出経路には含めない
-- `scripts/` — `secrets-scan.mjs` / `install-hooks.{sh,ps1}`
+- `scripts/` — `secrets-scan.dual.mjs`（doxguard 実行アダプタ）/ `install-hooks.{sh,ps1}`
 - `.githooks/` — layer 2 pre-commit（`core.hooksPath = .githooks` で有効化）
 - `.github/workflows/` — layer 3 CI (`secrets-scan.yml`)
 
@@ -70,7 +70,7 @@ Windows 11 ホスト（ホスト）の**既定音声出力デバイス**を、�
 - 整形: `cargo fmt`
 - 自動起動登録: `RemoteAudio.exe --install-autostart`
 - 自動起動解除: `RemoteAudio.exe --uninstall-autostart`
-- secrets-scan 手動実行: `node scripts/secrets-scan.mjs --staged --block`
+- secrets-scan 手動実行: `node scripts/secrets-scan.dual.mjs --native-only --staged`（doxguard 実行アダプタ）
 
 ## AI 作業共通ルール
 
@@ -91,11 +91,11 @@ Windows 11 ホスト（ホスト）の**既定音声出力デバイス**を、�
 
 書く瞬間の責務（固有名詞の一般化・fixture は合成データ等）は上記「AI 作業共通ルール」の参照先に従う。このリポジトリ固有の配線は以下:
 
-- scanner: `scripts/secrets-scan.mjs`（手動実行: `node scripts/secrets-scan.mjs --staged --block`）
+- scanner: doxguard と gitleaks（手動実行: `node scripts/secrets-scan.dual.mjs --native-only --staged`）
 - layer 2: `.githooks/pre-commit`（`core.hooksPath = .githooks` で有効化。第三者 clone 時は `bash scripts/install-hooks.sh` または `pwsh scripts/install-hooks.ps1`）
 - layer 3: `.github/workflows/secrets-scan.yml`（server-side backstop）
 - layer 4: release skill 側で kb 全文突き合わせ
-- env（full coverage に必要・未設定なら構造 regex のみで継続）: `KB_ROOT` / `FAMILY_ROOT`。設定詳細は `scripts/secrets-scan.mjs` の冒頭コメント
+- env（full coverage に必要・未設定なら構造 regex のみで継続）: `KB_ROOT` / `FAMILY_ROOT`。設定詳細は doxguard の README
 - 参照実装・設計詳細: `worklog-bridge` リポの `docs/local/secrets-scan-design/`（gitignored・公開しない）
 
 ## 関連ドキュメント
